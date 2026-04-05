@@ -173,8 +173,9 @@ export default function App() {
       const token = getSessionToken();
       if (!token) {
         if (!cancelled) {
-          setWardrobe(localW);
-          setSaved(localS);
+          // Datos siguen en localStorage; la vista queda vacía hasta iniciar sesión.
+          setWardrobe(EMPTY_WARDROBE);
+          setSaved([]);
           setSync({ mode: "local", needLogin: true });
           setUser(null);
           setInitDone(true);
@@ -210,8 +211,8 @@ export default function App() {
       } catch {
         if (!cancelled) {
           clearSession();
-          setWardrobe(localW);
-          setSaved(localS);
+          setWardrobe(EMPTY_WARDROBE);
+          setSaved([]);
           setUser(null);
           setSync({ mode: "local", needLogin: true, fromError: true });
           showToast("Sin servidor o sesión caducada");
@@ -225,9 +226,13 @@ export default function App() {
 
   useEffect(() => {
     if (!initDone) return;
-    persist("om_wardrobe", wardrobe);
-    persist("om_outfits", saved);
-    if (!hasRemoteApi() || !hasGoogleAuth() || !getSessionToken()) return;
+    const session = getSessionToken();
+    const hideLocalWhileLoggedOut = hasGoogleAuth() && !session;
+    if (!hideLocalWhileLoggedOut) {
+      persist("om_wardrobe", wardrobe);
+      persist("om_outfits", saved);
+    }
+    if (!hasRemoteApi() || !hasGoogleAuth() || !session) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       putRemoteState({ wardrobe, outfits: saved })
@@ -235,6 +240,14 @@ export default function App() {
         .catch(() => {
           clearSession();
           setUser(null);
+          setWardrobe(EMPTY_WARDROBE);
+          setSaved([]);
+          setOutfit({});
+          setNotes("");
+          setEditId(null);
+          setModal(null);
+          setRenamingId(null);
+          setRenameVal("");
           setSync((prev) => ({ ...prev, mode: "local", needLogin: true, fromError: true }));
         });
     }, 500);
@@ -256,6 +269,16 @@ export default function App() {
   const logout = () => {
     clearSession();
     setUser(null);
+    setWardrobe(EMPTY_WARDROBE);
+    setSaved([]);
+    setOutfit({});
+    setNotes("");
+    setEditId(null);
+    setModal(null);
+    setRenamingId(null);
+    setRenameVal("");
+    setFilterCat("Todos");
+    setTab("builder");
     setSync((prev) => ({ ...prev, mode: "local", needLogin: true }));
     showToast("Sesión cerrada");
   };
