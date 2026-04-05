@@ -152,10 +152,10 @@ export default function App() {
     if (!Object.keys(outfit).length) { showToast("Añade al menos una prenda"); return; }
     const date = new Date().toLocaleDateString("es-ES", { day:"2-digit", month:"short" });
     if (editId) {
-      setS(saved.map(o => o.id === editId ? {...o, slots:{...outfit}, notes, date} : o));
+      setS((prev) => prev.map(o => o.id === editId ? {...o, slots:{...outfit}, notes, date} : o));
       showToast("Outfit actualizado ✓");
     } else {
-      setS([{ id:Date.now(), name:`Outfit ${saved.length+1}`, slots:{...outfit}, notes, date }, ...saved]);
+      setS((prev) => [{ id:Date.now(), name:`Outfit ${prev.length+1}`, slots:{...outfit}, notes, date }, ...prev]);
       showToast("Outfit guardado ✓");
     }
     clearOutfit(); setTab("saved");
@@ -166,22 +166,22 @@ export default function App() {
 
   // ── Saved ──
   const loadOutfit   = (o) => { setOutfit({...o.slots}); setNotes(o.notes||""); setEditId(o.id); setTab("builder"); showToast("Cargado ✓"); };
-  const deleteOutfit = (id) => { setS(saved.filter(o => o.id !== id)); showToast("Eliminado"); };
+  const deleteOutfit = (id) => { setS((prev) => prev.filter(o => o.id !== id)); showToast("Eliminado"); };
   const startRename  = (id) => { const o = saved.find(x => x.id === id); if (!o) return; setRenamingId(id); setRenameVal(o.name); };
   const confirmRename = (id) => {
-    if (renameVal.trim()) setS(saved.map(x => x.id === id ? {...x, name:renameVal.trim()} : x));
+    if (renameVal.trim()) setS((prev) => prev.map(x => x.id === id ? {...x, name:renameVal.trim()} : x));
     setRenamingId(null); setRenameVal("");
   };
 
   // ── Wardrobe ──
   const deleteItem = (id) => {
-    setW(wardrobe.filter(i => i.id !== id));
+    setW((prev) => prev.filter(i => i.id !== id));
     const o = {...outfit}; Object.keys(o).forEach(k => { if (o[k].id === id) delete o[k]; }); setOutfit(o);
     showToast("Prenda eliminada");
   };
   const addItem = () => {
     if (!newName.trim()) { showToast("Introduce el nombre"); return; }
-    setW([...wardrobe, {
+    setW((prev) => [...prev, {
       id: Date.now(), name: newName.trim(), brand: newBrand.trim()||"—",
       category: newCat, emoji: newEmoji, color: newColor.hex,
       colorName: newColorName.trim()||newColor.name
