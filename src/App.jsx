@@ -1,4 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { GoogleLogin } from "@react-oauth/google";
+import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth } from "./lib/api.js";
+import { getSessionToken, setSessionToken, clearSession } from "./lib/session.js";
 
 const SLOTS = [
   { key: "outerwear", label: "Chaqueta",   cats: ["Chaquetas"] },
@@ -44,7 +47,10 @@ const cl = {
 
 const S = {
   app:      { maxWidth:430, margin:"0 auto", minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:"'DM Sans',system-ui,sans-serif", color:cl.navy, background:cl.cream },
-  hdr:      { background:cl.navy, padding:"18px 20px 14px", position:"sticky", top:0, zIndex:100, display:"flex", alignItems:"center" },
+  hdr:      { background:cl.navy, padding:"18px 20px 14px", position:"sticky", top:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 },
+  hdrSync:  { fontSize:11, color:cl.camel, letterSpacing:".04em", whiteSpace:"nowrap" },
+  hdrAuth:  { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end", maxWidth:200 },
+  btnOut:   { fontSize:10, padding:"4px 8px", borderRadius:6, border:`1px solid ${cl.camel}`, background:"transparent", color:cl.camel, cursor:"pointer", fontFamily:"inherit" },
   hdrSub:   { fontSize:10, letterSpacing:".15em", textTransform:"uppercase", color:cl.camel, marginBottom:2 },
   hdrH1:    { fontFamily:"Georgia,serif", fontSize:21, color:cl.cream, fontWeight:600 },
   tabs:     { display:"flex", background:cl.white, borderBottom:`1px solid ${cl.border}`, position:"sticky", top:57, zIndex:99 },
@@ -120,8 +126,13 @@ const S = {
 
 export default function App() {
   const [tab, setTab]           = useState("builder");
-  const [wardrobe, setWardrobe] = useState(() => load("om_wardrobe", EMPTY_WARDROBE));
-  const [saved, setSaved]       = useState(() => load("om_outfits", []));
+  const [wardrobe, setWardrobe] = useState(EMPTY_WARDROBE);
+  const [saved, setSaved]       = useState([]);
+  const [initDone, setInitDone] = useState(false);
+  const [sync, setSync]         = useState({ mode: "loading" });
+  const [authVersion, setAuthVersion] = useState(0);
+  const [user, setUser]         = useState(null);
+  const saveTimer = useRef(null);
   const [outfit, setOutfit]     = useState({});
   const [notes, setNotes]       = useState("");
   const [editId, setEditId]     = useState(null);
@@ -142,8 +153,115 @@ export default function App() {
     setTimeout(() => setToast(t => ({...t, on:false})), 2200);
   }, []);
 
-  const setW = (w) => { setWardrobe(w); persist("om_wardrobe", w); };
-  const setS = (s) => { setSaved(s);    persist("om_outfits", s);  };
+  useEffect(() => {
+    let cancelled = false;
+    async function init() {
+      const localW = load("om_wardrobe", EMPTY_WARDROBE);
+      const localS = load("om_outfits", []);
+
+      if (!hasRemoteApi() || !hasGoogleAuth()) {
+        if (!cancelled) {
+          setWardrobe(localW);
+          setSaved(localS);
+          setSync({ mode: "local" });
+          setUser(null);
+          setInitDone(true);
+        }
+        return;
+      }
+
+      const token = getSessionToken();
+      if (!token) {
+        if (!cancelled) {
+          setWardrobe(localW);
+          setSaved(localS);
+          setSync({ mode: "local", needLogin: true });
+          setUser(null);
+          setInitDone(true);
+        }
+        return;
+      }
+
+      try {
+        const data = await fetchRemoteState();
+        if (cancelled) return;
+        const w = data.wardrobe ?? [];
+        const s = data.outfits ?? [];
+        const serverEmpty = !w.length && !s.length;
+        const localHasData = localW.length > 0 || localS.length > 0;
+        if (serverEmpty && localHasData) {
+          await putRemoteState({ wardrobe: localW, outfits: localS });
+          setWardrobe(localW);
+          setSaved(localS);
+          persist("om_wardrobe", localW);
+          persist("om_outfits", localS);
+        } else {
+          setWardrobe(w);
+          setSaved(s);
+          persist("om_wardrobe", w);
+          persist("om_outfits", s);
+        }
+        setUser({
+          email: data.email ?? "",
+          name: data.name ?? "",
+          picture: data.picture ?? "",
+        });
+        setSync({ mode: "cloud" });
+      } catch {
+        if (!cancelled) {
+          clearSession();
+          setWardrobe(localW);
+          setSaved(localS);
+          setUser(null);
+          setSync({ mode: "local", needLogin: true, fromError: true });
+          showToast("Sin servidor o sesión caducada");
+        }
+      }
+      if (!cancelled) setInitDone(true);
+    }
+    init();
+    return () => { cancelled = true; };
+  }, [authVersion]);
+
+  useEffect(() => {
+    if (!initDone) return;
+    persist("om_wardrobe", wardrobe);
+    persist("om_outfits", saved);
+    if (!hasRemoteApi() || !hasGoogleAuth() || !getSessionToken()) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      putRemoteState({ wardrobe, outfits: saved })
+        .then(() => setSync((prev) => ({ ...prev, mode: "cloud", fromError: false })))
+        .catch(() => {
+          clearSession();
+          setUser(null);
+          setSync((prev) => ({ ...prev, mode: "local", needLogin: true, fromError: true }));
+        });
+    }, 500);
+    return () => clearTimeout(saveTimer.current);
+  }, [wardrobe, saved, initDone]);
+
+  const onGoogleSuccess = async (credentialResponse) => {
+    try {
+      const r = await postGoogleAuth(credentialResponse.credential);
+      setSessionToken(r.token);
+      setUser(r.user);
+      setAuthVersion((v) => v + 1);
+      showToast("Sesión iniciada");
+    } catch {
+      showToast("No se pudo iniciar sesión");
+    }
+  };
+
+  const logout = () => {
+    clearSession();
+    setUser(null);
+    setSync((prev) => ({ ...prev, mode: "local", needLogin: true }));
+    showToast("Sesión cerrada");
+  };
+
+  const setW = (w) => { setWardrobe(w); };
+  const setS = (s) => { setSaved(s); };
 
   // ── Builder ──
   const removeSlot  = (key) => { const o = {...outfit}; delete o[key]; setOutfit(o); };
@@ -193,12 +311,49 @@ export default function App() {
   const filteredW    = filterCat === "Todos" ? wardrobe : wardrobe.filter(i => i.category === filterCat);
   const wardrobeCats = ["Todos", ...new Set(wardrobe.map(i => i.category))];
 
+  const syncLabel =
+    sync.mode === "loading" ? "Cargando…" :
+    !hasGoogleAuth() ? "📴 Solo en el dispositivo" :
+    sync.mode === "cloud" ? "☁️ MongoDB + Google" :
+    sync.needLogin ? "Inicia sesión para la nube" :
+    "📴 Solo en el dispositivo";
+
+  const showGoogleLogin = hasGoogleAuth() && !user && initDone;
+
   return (
     <div style={S.app}>
+      {!initDone && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(245,240,232,.94)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif", fontSize:18, color:cl.navy }}>
+          Cargando datos…
+        </div>
+      )}
 
       {/* HEADER */}
       <div style={S.hdr}>
         <div><div style={S.hdrSub}>Marco's</div><div style={S.hdrH1}>Outfit Maker</div></div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, justifyContent:"flex-end", minWidth:0 }}>
+          <div style={S.hdrSync} title={sync.mode === "cloud" ? "Cuenta de Google vinculada a tu documento en MongoDB" : "Puedes usar la app solo en el navegador o iniciar sesión para guardar en la nube"}>{syncLabel}</div>
+          <div style={S.hdrAuth}>
+            {user && sync.mode === "cloud" && (
+              <>
+                {user.picture ? <img src={user.picture} alt="" width={24} height={24} style={{ borderRadius:"50%" }} /> : null}
+                <span style={{ ...S.hdrSync, maxWidth:90, overflow:"hidden", textOverflow:"ellipsis" }}>{user.name || user.email}</span>
+                <button type="button" style={S.btnOut} onClick={logout}>Salir</button>
+              </>
+            )}
+            {showGoogleLogin && (
+              <GoogleLogin
+                onSuccess={onGoogleSuccess}
+                onError={() => showToast("Error con Google")}
+                useOneTap={false}
+                text="signin_with"
+                shape="rectangular"
+                size="small"
+                locale="es"
+              />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* TABS */}
