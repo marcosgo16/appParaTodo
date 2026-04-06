@@ -30,6 +30,56 @@ app.use(
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const JWT_SECRET = process.env.JWT_SECRET;
+const GEMINI_MODEL_ENV = process.env.GEMINI_MODEL;
+
+let cachedGeminiModelName = null;
+let cachedGeminiModelAt = 0;
+const GEMINI_MODEL_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
+async function pickGeminiModelName() {
+  if (GEMINI_MODEL_ENV?.trim()) return GEMINI_MODEL_ENV.trim();
+  const now = Date.now();
+  if (cachedGeminiModelName && now - cachedGeminiModelAt < GEMINI_MODEL_TTL_MS) {
+    return cachedGeminiModelName;
+  }
+
+  const key = process.env.GEMINI_API_KEY;
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1/models?key=${key}`);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = data?.error?.message || `ListModels error ${r.status}`;
+    throw new Error(msg);
+  }
+
+  const models = Array.isArray(data.models) ? data.models : [];
+  const supportsGenerate = (m) =>
+    Array.isArray(m.supportedGenerationMethods) &&
+    m.supportedGenerationMethods.includes("generateContent");
+
+  const isCandidate = (m) => {
+    const name = (m.name || "").toLowerCase();
+    if (!name.startsWith("models/")) return false;
+    if (!name.includes("gemini")) return false;
+    if (name.includes("embedding")) return false;
+    return supportsGenerate(m);
+  };
+
+  const candidates = models.filter(isCandidate);
+  const prefer = (needle) =>
+    candidates.find((m) => (m.name || "").toLowerCase().includes(needle));
+
+  const chosen =
+    prefer("gemini-1.5-flash") ||
+    prefer("flash") ||
+    prefer("gemini-1.5") ||
+    candidates[0];
+
+  if (!chosen?.name) throw new Error("No hay modelos disponibles con generateContent");
+
+  cachedGeminiModelName = chosen.name;
+  cachedGeminiModelAt = now;
+  return cachedGeminiModelName;
+}
 
 function requireAuth(req, res, next) {
   if (!JWT_SECRET) {
@@ -164,8 +214,9 @@ Responde en español, de forma concisa y útil.`;
   const prompt = promptRaw.length > 22_000 ? `${promptRaw.slice(0, 22_000)}\n\n(Nota: contexto recortado por tamaño.)` : promptRaw;
 
   try {
+    const modelName = await pickGeminiModelName();
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
