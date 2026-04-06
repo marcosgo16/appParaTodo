@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth, getApiUrl, getAuthHeaders } from "./lib/api.js";
 import { getSessionToken, setSessionToken, clearSession } from "./lib/session.js";
@@ -48,15 +48,18 @@ const cl = {
   tag: "#EDE8DF", danger: "#C0392B",
 };
 
-const S = {
-  app:      { maxWidth:430, margin:"0 auto", minHeight:"100vh", display:"flex", flexDirection:"column", fontFamily:"'DM Sans',system-ui,sans-serif", color:cl.navy, background:cl.cream },
-  hdr:      { background:cl.navy, padding:"18px 20px 14px", position:"sticky", top:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 },
+const BASE_S = {
+  page:     { minHeight:"100vh", background:cl.cream, color:cl.navy, fontFamily:"'DM Sans',system-ui,sans-serif" },
+  app:      { maxWidth:430, margin:"0 auto", minHeight:"100vh", display:"flex", flexDirection:"column" },
+  hdrBar:   { background:cl.navy, position:"sticky", top:0, zIndex:100 },
+  hdr:      { padding:"18px 20px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 },
   hdrSync:  { fontSize:11, color:cl.camel, letterSpacing:".04em", whiteSpace:"nowrap" },
   hdrAuth:  { display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", justifyContent:"flex-end", maxWidth:200 },
   btnOut:   { fontSize:10, padding:"4px 8px", borderRadius:6, border:`1px solid ${cl.camel}`, background:"transparent", color:cl.camel, cursor:"pointer", fontFamily:"inherit" },
   hdrSub:   { fontSize:10, letterSpacing:".15em", textTransform:"uppercase", color:cl.camel, marginBottom:2 },
   hdrH1:    { fontFamily:"Georgia,serif", fontSize:21, color:cl.cream, fontWeight:600 },
-  tabs:     { display:"flex", background:cl.white, borderBottom:`1px solid ${cl.border}`, position:"sticky", top:57, zIndex:99 },
+  tabsBar:  { background:cl.white, borderBottom:`1px solid ${cl.border}`, position:"sticky", top:0, zIndex:99 },
+  tabs:     { display:"flex" },
   tab:      { flex:1, padding:"12px 4px", fontSize:11, fontWeight:500, letterSpacing:".06em", textTransform:"uppercase", textAlign:"center", cursor:"pointer", border:"none", borderBottom:"2px solid transparent", background:"none", color:cl.stone },
   tabOn:    { color:cl.navy, borderBottom:`2px solid ${cl.camel}` },
   sec:      { padding:16, flex:1 },
@@ -156,6 +159,71 @@ function ItemVisual({ item, size = 36, imgStyle }) {
 }
 
 export default function App() {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(min-width: 900px)").matches
+      : false
+  );
+  const hdrMeasureRef = useRef(null);
+  const [hdrHeight, setHdrHeight] = useState(57);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(min-width: 900px)");
+    const onChange = (e) => setIsDesktop(e.matches);
+    onChange(mq);
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else mq.addListener(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", onChange);
+      else mq.removeListener(onChange);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!hdrMeasureRef.current) return;
+    const el = hdrMeasureRef.current;
+
+    const update = () => {
+      const h = Math.round(el.getBoundingClientRect().height || 0);
+      if (h && h !== hdrHeight) setHdrHeight(h);
+    };
+
+    update();
+    let ro;
+    if (window.ResizeObserver) {
+      ro = new ResizeObserver(update);
+      ro.observe(el);
+    } else {
+      window.addEventListener("resize", update);
+    }
+
+    return () => {
+      if (ro) ro.disconnect();
+      else window.removeEventListener("resize", update);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDesktop]);
+
+  const S = {
+    ...BASE_S,
+    app: { ...BASE_S.app, maxWidth: isDesktop ? 1040 : 430 },
+    sec: { ...BASE_S.sec, padding: isDesktop ? 22 : BASE_S.sec.padding },
+    tabsBar: { ...BASE_S.tabsBar, top: hdrHeight },
+    grid2: {
+      ...BASE_S.grid2,
+      gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : BASE_S.grid2.gridTemplateColumns,
+      gap: isDesktop ? 14 : BASE_S.grid2.gap,
+    },
+    itemGrid: {
+      ...BASE_S.itemGrid,
+      gridTemplateColumns: isDesktop ? "repeat(4, 1fr)" : BASE_S.itemGrid.gridTemplateColumns,
+      gap: isDesktop ? 14 : BASE_S.itemGrid.gap,
+    },
+    modal: { ...BASE_S.modal, maxWidth: isDesktop ? 720 : BASE_S.modal.maxWidth },
+    mGrid: { ...BASE_S.mGrid, gridTemplateColumns: isDesktop ? "repeat(3, 1fr)" : BASE_S.mGrid.gridTemplateColumns },
+  };
+
   const [tab, setTab]           = useState("builder");
   const [wardrobe, setWardrobe] = useState(EMPTY_WARDROBE);
   const [saved, setSaved]       = useState([]);
@@ -467,7 +535,7 @@ export default function App() {
   };
   
   return (
-    <div style={S.app}>
+    <div style={S.page}>
       {!initDone && (
         <div style={{ position:"fixed", inset:0, background:"rgba(245,240,232,.94)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"Georgia,serif", fontSize:18, color:cl.navy }}>
           Cargando datos…
@@ -475,39 +543,45 @@ export default function App() {
       )}
 
       {/* HEADER */}
-      <div style={S.hdr}>
-        <div><div style={S.hdrSub}>Marco's</div><div style={S.hdrH1}>Outfit Maker</div></div>
-        <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, justifyContent:"flex-end", minWidth:0 }}>
-          <div style={S.hdrSync} title={sync.mode === "cloud" ? "Cuenta de Google vinculada a tu documento en MongoDB" : "Puedes usar la app solo en el navegador o iniciar sesión para guardar en la nube"}>{syncLabel}</div>
-          <div style={S.hdrAuth}>
-            {user && sync.mode === "cloud" && (
-              <>
-                {user.picture ? <img src={user.picture} alt="" width={24} height={24} style={{ borderRadius:"50%" }} /> : null}
-                <span style={{ ...S.hdrSync, maxWidth:90, overflow:"hidden", textOverflow:"ellipsis" }}>{user.name || user.email}</span>
-                <button type="button" style={S.btnOut} onClick={logout}>Salir</button>
-              </>
-            )}
-            {showGoogleLogin && (
-              <GoogleLogin
-                onSuccess={onGoogleSuccess}
-                onError={() => showToast("Error con Google")}
-                useOneTap={false}
-                text="signin_with"
-                shape="rectangular"
-                size="small"
-                locale="es"
-              />
-            )}
+      <div style={S.hdrBar}>
+        <div ref={hdrMeasureRef} style={{ ...S.hdr, maxWidth: S.app.maxWidth, margin: "0 auto" }}>
+          <div><div style={S.hdrSub}>Marco's</div><div style={S.hdrH1}>Outfit Maker</div></div>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, justifyContent:"flex-end", minWidth:0 }}>
+            <div style={S.hdrSync} title={sync.mode === "cloud" ? "Cuenta de Google vinculada a tu documento en MongoDB" : "Puedes usar la app solo en el navegador o iniciar sesión para guardar en la nube"}>{syncLabel}</div>
+            <div style={S.hdrAuth}>
+              {user && sync.mode === "cloud" && (
+                <>
+                  {user.picture ? <img src={user.picture} alt="" width={24} height={24} style={{ borderRadius:"50%" }} /> : null}
+                  <span style={{ ...S.hdrSync, maxWidth:90, overflow:"hidden", textOverflow:"ellipsis" }}>{user.name || user.email}</span>
+                  <button type="button" style={S.btnOut} onClick={logout}>Salir</button>
+                </>
+              )}
+              {showGoogleLogin && (
+                <GoogleLogin
+                  onSuccess={onGoogleSuccess}
+                  onError={() => showToast("Error con Google")}
+                  useOneTap={false}
+                  text="signin_with"
+                  shape="rectangular"
+                  size="small"
+                  locale="es"
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* TABS */}
-      <div style={S.tabs}>
-        {[["builder","Constructor"],["saved","Guardados"],["wardrobe","Armario"]].map(([id,lbl]) => (
-          <button key={id} style={{...S.tab, ...(tab===id ? S.tabOn : {})}} onClick={() => setTab(id)}>{lbl}</button>
-        ))}
+      <div style={S.tabsBar}>
+        <div style={{ ...S.tabs, maxWidth: S.app.maxWidth, margin: "0 auto" }}>
+          {[["builder","Constructor"],["saved","Guardados"],["wardrobe","Armario"]].map(([id,lbl]) => (
+            <button key={id} style={{...S.tab, ...(tab===id ? S.tabOn : {})}} onClick={() => setTab(id)}>{lbl}</button>
+          ))}
+        </div>
       </div>
+
+      <div style={S.app}>
 
       {/* ── BUILDER ── */}
       {tab === "builder" && (
@@ -553,120 +627,148 @@ export default function App() {
           <div style={S.secTitle}>Outfits guardados</div>
           {!saved.length ? (
             <div style={S.empty}><div style={S.emptyIco}>🪡</div><p style={S.emptyP}>Aún no tienes outfits guardados.<br/>Crea uno en el Constructor.</p></div>
-          ) : saved.map(o => {
-            const pieces = Object.values(o.slots);
-            return (
-              <div key={o.id} style={S.card}>
-                <div style={S.cardHdr}>
-                  {renamingId === o.id ? (
-                    <div style={{display:"flex", gap:6, flex:1, alignItems:"center"}}>
-                      <input
-                        autoFocus
-                        style={{...S.finput, padding:"5px 9px", fontSize:13, flex:1}}
-                        value={renameVal}
-                        onChange={e => setRenameVal(e.target.value)}
-                        onKeyDown={e => { if (e.key==="Enter") confirmRename(o.id); if (e.key==="Escape") setRenamingId(null); }}
-                      />
-                      <button style={{...S.btnSm, ...S.btnSmP}} onClick={() => confirmRename(o.id)}>OK</button>
+          ) : (
+            <div
+              style={
+                isDesktop
+                  ? { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14, alignItems: "start" }
+                  : undefined
+              }
+            >
+              {saved.map(o => {
+                const pieces = Object.values(o.slots);
+                return (
+                  <div key={o.id} style={{ ...S.card, marginBottom: isDesktop ? 0 : S.card.marginBottom }}>
+                    <div style={S.cardHdr}>
+                      {renamingId === o.id ? (
+                        <div style={{display:"flex", gap:6, flex:1, alignItems:"center"}}>
+                          <input
+                            autoFocus
+                            style={{...S.finput, padding:"5px 9px", fontSize:13, flex:1}}
+                            value={renameVal}
+                            onChange={e => setRenameVal(e.target.value)}
+                            onKeyDown={e => { if (e.key==="Enter") confirmRename(o.id); if (e.key==="Escape") setRenamingId(null); }}
+                          />
+                          <button style={{...S.btnSm, ...S.btnSmP}} onClick={() => confirmRename(o.id)}>OK</button>
+                        </div>
+                      ) : (
+                        <div style={S.cardName}>{o.name}</div>
+                      )}
+                      <div style={{...S.cardDate, marginLeft:8}}>{o.date}</div>
                     </div>
-                  ) : (
-                    <div style={S.cardName}>{o.name}</div>
-                  )}
-                  <div style={{...S.cardDate, marginLeft:8}}>{o.date}</div>
-                </div>
-                <div style={S.chips}>
-                  {pieces.map((p,i) => (
-                    <span key={i} style={S.chip}>
-                      <span style={S.dot(p.color)}></span>
-                      <ItemVisual item={p} size={15} />
-                      <span>{p.name}</span>
-                    </span>
-                  ))}
-                </div>
-                {o.notes && <div style={S.cardNote}>{o.notes}</div>}
-                <div style={S.cardAct}>
-                  <button style={{...S.btnSm, ...S.btnSmP}} onClick={() => loadOutfit(o)}>Editar</button>
-                  <button style={{...S.btnSm, ...S.btnSmD}} onClick={() => deleteOutfit(o.id)}>Eliminar</button>
-                  <button style={{...S.btnSm, background:cl.tag, color:cl.navy}} onClick={() => startRename(o.id)}>Renombrar</button>
-                  <button style={{...S.btnSm, background:"#f0e6ff", color:"#6b21a8"}} onClick={() => { setAiModal({ outfit: o }); setAiMessages([{ role:"ai", text:`Hola, cuéntame qué quieres saber sobre tu outfit "${o.name}" o tu armario en general.` }]); }}>Boris</button>
-                </div>
-              </div>
-            );
-          })}
+                    <div style={S.chips}>
+                      {pieces.map((p,i) => (
+                        <span key={i} style={S.chip}>
+                          <span style={S.dot(p.color)}></span>
+                          <ItemVisual item={p} size={15} />
+                          <span>{p.name}</span>
+                        </span>
+                      ))}
+                    </div>
+                    {o.notes && <div style={S.cardNote}>{o.notes}</div>}
+                    <div style={S.cardAct}>
+                      <button style={{...S.btnSm, ...S.btnSmP}} onClick={() => loadOutfit(o)}>Editar</button>
+                      <button style={{...S.btnSm, ...S.btnSmD}} onClick={() => deleteOutfit(o.id)}>Eliminar</button>
+                      <button style={{...S.btnSm, background:cl.tag, color:cl.navy}} onClick={() => startRename(o.id)}>Renombrar</button>
+                      <button style={{...S.btnSm, background:"#f0e6ff", color:"#6b21a8"}} onClick={() => { setAiModal({ outfit: o }); setAiMessages([{ role:"ai", text:`Hola, cuéntame qué quieres saber sobre tu outfit "${o.name}" o tu armario en general.` }]); }}>Boris</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {/* ── WARDROBE ── */}
       {tab === "wardrobe" && (
         <div style={S.sec}>
-          <div style={S.formBox}>
-            <div style={S.formH3}>Añadir prenda</div>
-            <div style={S.fg}><label style={S.flbl}>Nombre</label><input style={S.finput} placeholder="Ej: Chinos beige" value={newName} onChange={e => setNewName(e.target.value)} /></div>
-            <div style={S.fg}><label style={S.flbl}>Marca</label><input style={S.finput} placeholder="Ej: Ralph Lauren" value={newBrand} onChange={e => setNewBrand(e.target.value)} /></div>
-            <div style={S.fg}>
-              <label style={S.flbl}>Foto (opcional)</label>
-              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
-                <input ref={imageFileInputRef} type="file" accept="image/*" style={{ fontSize:12, maxWidth:"100%" }} onChange={onPickImageFile} />
-                {newImageUrl ? (
-                  <button type="button" style={{...S.btnSm, ...S.btnSmD}} onClick={() => { setNewImageUrl(""); if (imageFileInputRef.current) imageFileInputRef.current.value = ""; }}>Quitar foto</button>
-                ) : null}
-              </div>
-              <div style={{ fontSize:10, color:cl.stone, marginTop:6, lineHeight:1.45 }}>
-                Sube una imagen desde el ordenador o <strong>pega una captura</strong> con Ctrl+V estando en la pestaña Armario.
-              </div>
-              {newImageUrl ? <img src={newImageUrl} alt="" style={{ marginTop:8, maxWidth:130, maxHeight:130, objectFit:"cover", borderRadius:10, border:`1px solid ${cl.border}` }} /> : null}
-            </div>
-            <div style={S.fg}>
-              <label style={S.flbl}>Categoría</label>
-              <select style={S.fsel} value={newCat} onChange={e => setNewCat(e.target.value)}>
-                {CATS.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div style={S.fg}>
-              <label style={S.flbl}>Icono</label>
-              <div style={S.ep}>
-                {ALL_EMOJIS.map(em => (
-                  <button key={em} style={{...S.eo, ...(newEmoji===em ? S.eoOn : {})}} onClick={() => setNewEmoji(em)}>{em}</button>
-                ))}
-              </div>
-            </div>
-            <div style={S.fg}>
-              <label style={S.flbl}>Color</label>
-              <div style={S.cp}>
-                {COLORS.map(col => (
-                  <button key={col.hex} style={{...S.co, ...(newColor.hex===col.hex ? S.coOn : {}), background:col.hex, ...(col.border ? {border:`2px solid ${col.border}`} : {})}} onClick={() => { setNewColor(col); setNewColorName(col.name); }} />
-                ))}
-              </div>
-              <input style={{...S.finput, marginTop:8}} placeholder="Nombre del color" value={newColorName} onChange={e => setNewColorName(e.target.value)} />
-            </div>
-            <button style={{...S.btn, ...S.btnP, width:"100%"}} onClick={addItem}>Añadir al armario</button>
-          </div>
-
-          <div style={S.wHdr}>
-            <div style={{...S.secTitle, margin:0}}>Mi armario</div>
-            <div style={{fontSize:12, color:cl.stone}}>{filteredW.length} prendas</div>
-          </div>
-
-          {wardrobe.length === 0 ? (
-            <div style={S.empty}><div style={S.emptyIco}>🧺</div><p style={S.emptyP}>Tu armario está vacío.<br/>Añade tu primera prenda arriba.</p></div>
-          ) : (<>
-            <div style={S.filterRow}>
-              {wardrobeCats.map(cat => (
-                <button key={cat} style={{...S.fchip, ...(filterCat===cat ? S.fchipOn : {})}} onClick={() => setFilterCat(cat)}>{cat}</button>
-              ))}
-            </div>
-            <div style={S.itemGrid}>
-              {filteredW.map(item => (
-                <div key={item.id} style={S.itemCard}>
-                  <div style={{ ...S.itemEm, display:"flex", alignItems:"center", justifyContent:"center" }}><ItemVisual item={item} size={36} /></div>
-                  <div style={S.itemName}>{item.name}</div>
-                  <div style={S.itemBrand}>{item.brand}</div>
-                  <div style={S.itemColor}><span style={S.dot(item.color)}></span>{item.colorName}</div>
-                  <button style={S.itemDel} onClick={() => deleteItem(item.id)}>✕</button>
+          <div
+            style={
+              isDesktop
+                ? { display: "grid", gridTemplateColumns: "380px minmax(0, 1fr)", gap: 18, alignItems: "start" }
+                : undefined
+            }
+          >
+            <div
+              style={
+                isDesktop
+                  ? { position: "sticky", top: 122, alignSelf: "start" }
+                  : undefined
+              }
+            >
+              <div style={S.formBox}>
+                <div style={S.formH3}>Añadir prenda</div>
+                <div style={S.fg}><label style={S.flbl}>Nombre</label><input style={S.finput} placeholder="Ej: Chinos beige" value={newName} onChange={e => setNewName(e.target.value)} /></div>
+                <div style={S.fg}><label style={S.flbl}>Marca</label><input style={S.finput} placeholder="Ej: Ralph Lauren" value={newBrand} onChange={e => setNewBrand(e.target.value)} /></div>
+                <div style={S.fg}>
+                  <label style={S.flbl}>Foto (opcional)</label>
+                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                    <input ref={imageFileInputRef} type="file" accept="image/*" style={{ fontSize:12, maxWidth:"100%" }} onChange={onPickImageFile} />
+                    {newImageUrl ? (
+                      <button type="button" style={{...S.btnSm, ...S.btnSmD}} onClick={() => { setNewImageUrl(""); if (imageFileInputRef.current) imageFileInputRef.current.value = ""; }}>Quitar foto</button>
+                    ) : null}
+                  </div>
+                  <div style={{ fontSize:10, color:cl.stone, marginTop:6, lineHeight:1.45 }}>
+                    Sube una imagen desde el ordenador o <strong>pega una captura</strong> con Ctrl+V estando en la pestaña Armario.
+                  </div>
+                  {newImageUrl ? <img src={newImageUrl} alt="" style={{ marginTop:8, maxWidth:180, maxHeight:180, objectFit:"cover", borderRadius:10, border:`1px solid ${cl.border}` }} /> : null}
                 </div>
-              ))}
+                <div style={S.fg}>
+                  <label style={S.flbl}>Categoría</label>
+                  <select style={S.fsel} value={newCat} onChange={e => setNewCat(e.target.value)}>
+                    {CATS.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div style={S.fg}>
+                  <label style={S.flbl}>Icono</label>
+                  <div style={S.ep}>
+                    {ALL_EMOJIS.map(em => (
+                      <button key={em} style={{...S.eo, ...(newEmoji===em ? S.eoOn : {})}} onClick={() => setNewEmoji(em)}>{em}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={S.fg}>
+                  <label style={S.flbl}>Color</label>
+                  <div style={S.cp}>
+                    {COLORS.map(col => (
+                      <button key={col.hex} style={{...S.co, ...(newColor.hex===col.hex ? S.coOn : {}), background:col.hex, ...(col.border ? {border:`2px solid ${col.border}`} : {})}} onClick={() => { setNewColor(col); setNewColorName(col.name); }} />
+                    ))}
+                  </div>
+                  <input style={{...S.finput, marginTop:8}} placeholder="Nombre del color" value={newColorName} onChange={e => setNewColorName(e.target.value)} />
+                </div>
+                <button style={{...S.btn, ...S.btnP, width:"100%"}} onClick={addItem}>Añadir al armario</button>
+              </div>
             </div>
-          </>)}
+
+            <div>
+              <div style={S.wHdr}>
+                <div style={{...S.secTitle, margin:0}}>Mi armario</div>
+                <div style={{fontSize:12, color:cl.stone}}>{filteredW.length} prendas</div>
+              </div>
+
+              {wardrobe.length === 0 ? (
+                <div style={S.empty}><div style={S.emptyIco}>🧺</div><p style={S.emptyP}>Tu armario está vacío.<br/>Añade tu primera prenda arriba.</p></div>
+              ) : (<>
+                <div style={S.filterRow}>
+                  {wardrobeCats.map(cat => (
+                    <button key={cat} style={{...S.fchip, ...(filterCat===cat ? S.fchipOn : {})}} onClick={() => setFilterCat(cat)}>{cat}</button>
+                  ))}
+                </div>
+                <div style={S.itemGrid}>
+                  {filteredW.map(item => (
+                    <div key={item.id} style={S.itemCard}>
+                      <div style={{ ...S.itemEm, display:"flex", alignItems:"center", justifyContent:"center" }}><ItemVisual item={item} size={36} /></div>
+                      <div style={S.itemName}>{item.name}</div>
+                      <div style={S.itemBrand}>{item.brand}</div>
+                      <div style={S.itemColor}><span style={S.dot(item.color)}></span>{item.colorName}</div>
+                      <button style={S.itemDel} onClick={() => deleteItem(item.id)}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </>)}
+            </div>
+          </div>
         </div>
       )}
 
@@ -726,6 +828,7 @@ export default function App() {
 
       {/* TOAST */}
       <div style={{...S.toast, ...(toast.on ? S.toastShow : {})}}>{toast.msg}</div>
+    </div>
     </div>
   );
 }
