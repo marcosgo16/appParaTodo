@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { verifyGoogleIdToken, signSessionToken, verifySessionToken } from "./auth.js";
 
 const UserStateSchema = new mongoose.Schema(
@@ -21,9 +22,30 @@ const UserState =
 
 const app = express();
 app.use(express.json({ limit: "12mb" }));
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const DEFAULT_CORS_ORIGINS = new Set([
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://marcosgo16.github.io",
+]);
+
+const allowedOrigins = new Set([
+  ...DEFAULT_CORS_ORIGINS,
+  ...CORS_ORIGINS,
+]);
+
 app.use(
   cors({
-    origin: (origin, cb) => cb(null, true),
+    origin: (origin, cb) => {
+      // Permite requests sin Origin (curl, health checks, etc.)
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.has(origin)) return cb(null, true);
+      return cb(new Error("CORS blocked"), false);
+    },
     credentials: true,
   })
 );
@@ -50,6 +72,15 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Sesión inválida o caducada" });
   }
 }
+
+const aiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 min
+  limit: 30, // 30 requests/10min por usuario
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: "Demasiadas peticiones a la IA. Espera un momento y prueba de nuevo." },
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -123,7 +154,7 @@ app.put("/api/state", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/ai", requireAuth, async (req, res) => {
+app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
   const { wardrobe, outfits, question } = req.body ?? {};
   if (!question) return res.status(400).json({ error: "Falta question" });
   if (!GROQ_API_KEY) {
