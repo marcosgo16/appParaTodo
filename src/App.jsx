@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { GoogleLogin } from "@react-oauth/google";
-import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth } from "./lib/api.js";
+import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth, postProductPreview } from "./lib/api.js";
 import { getSessionToken, setSessionToken, clearSession } from "./lib/session.js";
 
 const SLOTS = [
@@ -124,6 +124,34 @@ const S = {
   toastShow:{ transform:"translateX(-50%) translateY(0)" },
 };
 
+function ItemVisual({ item, size = 36, imgStyle }) {
+  const [imgErr, setImgErr] = useState(false);
+  if (item.imageUrl && !imgErr) {
+    return (
+      <img
+        src={item.imageUrl}
+        alt=""
+        width={size}
+        height={size}
+        style={{
+          objectFit: "cover",
+          borderRadius: 9,
+          border: "1px solid rgba(0,0,0,.08)",
+          flexShrink: 0,
+          ...imgStyle,
+        }}
+        onError={() => setImgErr(true)}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  return (
+    <span style={{ fontSize: Math.round(size * 0.68), lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      {item.emoji || "👕"}
+    </span>
+  );
+}
+
 export default function App() {
   const [tab, setTab]           = useState("builder");
   const [wardrobe, setWardrobe] = useState(EMPTY_WARDROBE);
@@ -147,6 +175,9 @@ export default function App() {
   const [newEmoji, setNewEmoji] = useState("👕");
   const [newColor, setNewColor] = useState(COLORS[0]);
   const [newColorName, setNewColorName] = useState("");
+  const [newProductUrl, setNewProductUrl] = useState("");
+  const [newImageUrl, setNewImageUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const showToast = useCallback((msg) => {
     setToast({ msg, on:true });
@@ -248,11 +279,32 @@ export default function App() {
           setModal(null);
           setRenamingId(null);
           setRenameVal("");
+          setNewProductUrl("");
+          setNewImageUrl("");
           setSync((prev) => ({ ...prev, mode: "local", needLogin: true, fromError: true }));
         });
     }, 500);
     return () => clearTimeout(saveTimer.current);
   }, [wardrobe, saved, initDone]);
+
+  const fetchProductFromUrl = async () => {
+    const u = newProductUrl.trim();
+    if (!u) { showToast("Pega el enlace del producto"); return; }
+    if (!hasRemoteApi()) { showToast("La vista previa requiere el servidor API"); return; }
+    setPreviewLoading(true);
+    try {
+      const data = await postProductPreview(u);
+      if (data.title && !newName.trim()) setNewName(data.title);
+      if (data.imageUrl) setNewImageUrl(data.imageUrl);
+      if (data.productUrl) setNewProductUrl(data.productUrl);
+      showToast("Datos obtenidos ✓");
+    } catch (e) {
+      const msg = typeof e?.message === "string" ? e.message : String(e);
+      showToast(msg.length > 90 ? `${msg.slice(0, 90)}…` : msg);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const onGoogleSuccess = async (credentialResponse) => {
     try {
@@ -279,6 +331,8 @@ export default function App() {
     setRenameVal("");
     setFilterCat("Todos");
     setTab("builder");
+    setNewProductUrl("");
+    setNewImageUrl("");
     setSync((prev) => ({ ...prev, mode: "local", needLogin: true }));
     showToast("Sesión cerrada");
   };
@@ -323,11 +377,18 @@ export default function App() {
   const addItem = () => {
     if (!newName.trim()) { showToast("Introduce el nombre"); return; }
     setW((prev) => [...prev, {
-      id: Date.now(), name: newName.trim(), brand: newBrand.trim()||"—",
-      category: newCat, emoji: newEmoji, color: newColor.hex,
-      colorName: newColorName.trim()||newColor.name
+      id: Date.now(),
+      name: newName.trim(),
+      brand: newBrand.trim()||"—",
+      category: newCat,
+      emoji: newEmoji,
+      color: newColor.hex,
+      colorName: newColorName.trim()||newColor.name,
+      ...(newImageUrl ? { imageUrl: newImageUrl } : {}),
+      ...(newProductUrl.trim() ? { productUrl: newProductUrl.trim() } : {}),
     }]);
     setNewName(""); setNewBrand(""); setNewColorName("");
+    setNewProductUrl(""); setNewImageUrl("");
     showToast("Prenda añadida ✓");
   };
 
@@ -396,7 +457,7 @@ export default function App() {
                 <div key={slot.key} style={{...S.slot, ...(item ? S.slotFill : {})}} onClick={() => !item && setModal(slot)}>
                   <div style={S.slotLbl}>{slot.label}</div>
                   {item ? (<>
-                    <div style={S.slotEm}>{item.emoji}</div>
+                    <div style={{ ...S.slotEm, display:"flex", alignItems:"center", justifyContent:"center", minHeight:36 }}><ItemVisual item={item} size={34} /></div>
                     <div style={S.slotName}>{item.name}</div>
                     <div style={S.slotBrand}><span style={S.dot(item.color)}></span>{item.brand}</div>
                     <button style={S.slotX} onClick={e => { e.stopPropagation(); removeSlot(slot.key); }}>✕</button>
@@ -453,7 +514,11 @@ export default function App() {
                 </div>
                 <div style={S.chips}>
                   {pieces.map((p,i) => (
-                    <span key={i} style={S.chip}><span style={S.dot(p.color)}></span>{p.emoji} {p.name}</span>
+                    <span key={i} style={S.chip}>
+                      <span style={S.dot(p.color)}></span>
+                      <ItemVisual item={p} size={15} />
+                      <span>{p.name}</span>
+                    </span>
                   ))}
                 </div>
                 {o.notes && <div style={S.cardNote}>{o.notes}</div>}
@@ -475,6 +540,17 @@ export default function App() {
             <div style={S.formH3}>Añadir prenda</div>
             <div style={S.fg}><label style={S.flbl}>Nombre</label><input style={S.finput} placeholder="Ej: Chinos beige" value={newName} onChange={e => setNewName(e.target.value)} /></div>
             <div style={S.fg}><label style={S.flbl}>Marca</label><input style={S.finput} placeholder="Ej: Ralph Lauren" value={newBrand} onChange={e => setNewBrand(e.target.value)} /></div>
+            <div style={S.fg}>
+              <label style={S.flbl}>Enlace del producto (opcional)</label>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                <input style={{...S.finput, flex:1, minWidth:140}} placeholder="https://…" value={newProductUrl} onChange={e => setNewProductUrl(e.target.value)} />
+                <button type="button" style={{...S.btnSm, ...S.btnSmP, opacity: hasRemoteApi() ? 1 : 0.5}} disabled={previewLoading || !hasRemoteApi()} onClick={fetchProductFromUrl}>{previewLoading ? "…" : "Obtener foto"}</button>
+              </div>
+              <div style={{ fontSize:10, color:cl.stone, marginTop:6, lineHeight:1.45 }}>
+                Pega la URL de la ficha (Shein, deportivas, etc.). No hay API pública por ID: el servidor lee título e imagen de la página (Open Graph). Algunas tiendas bloquean robots y puede fallar.
+              </div>
+              {newImageUrl ? <img src={newImageUrl} alt="" style={{ marginTop:8, maxWidth:130, maxHeight:130, objectFit:"cover", borderRadius:10, border:`1px solid ${cl.border}` }} /> : null}
+            </div>
             <div style={S.fg}>
               <label style={S.flbl}>Categoría</label>
               <select style={S.fsel} value={newCat} onChange={e => setNewCat(e.target.value)}>
@@ -517,8 +593,13 @@ export default function App() {
             <div style={S.itemGrid}>
               {filteredW.map(item => (
                 <div key={item.id} style={S.itemCard}>
-                  <span style={S.itemEm}>{item.emoji}</span>
-                  <div style={S.itemName}>{item.name}</div>
+                  <div style={{ ...S.itemEm, display:"flex", alignItems:"center", justifyContent:"center" }}><ItemVisual item={item} size={36} /></div>
+                  <div style={S.itemName}>
+                    {item.name}
+                    {item.productUrl ? (
+                      <a href={item.productUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ marginLeft:5, fontSize:11 }} title="Abrir en la tienda">↗</a>
+                    ) : null}
+                  </div>
                   <div style={S.itemBrand}>{item.brand}</div>
                   <div style={S.itemColor}><span style={S.dot(item.color)}></span>{item.colorName}</div>
                   <button style={S.itemDel} onClick={() => deleteItem(item.id)}>✕</button>
@@ -541,7 +622,7 @@ export default function App() {
                 ? <div style={{gridColumn:"span 2", textAlign:"center", color:cl.stone, fontSize:13, padding:20}}>No hay prendas en esta categoría.</div>
                 : wardrobe.filter(i => modal.cats.includes(i.category)).map(item => (
                   <div key={item.id} style={S.mItem} onClick={() => selectItem(item)}>
-                    <div style={S.mEm}>{item.emoji}</div>
+                    <div style={{ ...S.mEm, display:"flex", alignItems:"center", justifyContent:"center" }}><ItemVisual item={item} size={30} /></div>
                     <div style={S.mName}>{item.name}</div>
                     <div style={S.mBrand}><span style={S.dot(item.color, 8)}></span>{item.brand}</div>
                   </div>
