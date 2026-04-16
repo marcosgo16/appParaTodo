@@ -307,6 +307,7 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
     const src = fence ? fence[1].trim() : trimmed;
 
+    const matches = [];
     for (let start = src.indexOf("{"); start !== -1; start = src.indexOf("{", start + 1)) {
       let depth = 0;
       let inStr = false;
@@ -329,10 +330,12 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
           const candidate = src.slice(start, i + 1);
           try {
             const obj = JSON.parse(candidate);
-            if (obj && typeof obj === "object" && ("reply" in obj || "proposal" in obj)) {
-              const before = src.slice(0, start).trim();
-              const after = src.slice(i + 1).trim();
-              return { obj, before, after };
+            if (obj && typeof obj === "object") {
+              matches.push({
+                obj,
+                before: src.slice(0, start).trim(),
+                after: src.slice(i + 1).trim(),
+              });
             }
           } catch {
             // sigue probando
@@ -341,7 +344,32 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
         }
       }
     }
+    if (!matches.length) return null;
+
+    // Preferencia: { reply, proposal } > { proposal } > objeto con pinta de proposal (slots).
+    const wrapper = matches.find((m) => "reply" in m.obj) || matches.find((m) => "proposal" in m.obj);
+    if (wrapper) return wrapper;
+    const bareProposal = matches.find((m) => m.obj && typeof m.obj.slots === "object" && m.obj.slots);
+    if (bareProposal) {
+      return {
+        obj: { proposal: bareProposal.obj },
+        before: bareProposal.before,
+        after: bareProposal.after,
+        bare: true,
+      };
+    }
     return null;
+  }
+
+  function sanitizeReplyText(raw) {
+    let s = String(raw || "");
+    s = s.replace(/\*\*proposal\*\*\s*:?/gi, "");
+    s = s.replace(/\(\s*id\s*:?\s*[^)]*\)/gi, "");
+    s = s.replace(/\bid\s*:\s*[A-Za-z0-9_-]+/g, "");
+    s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+    s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+    s = s.replace(/[ \t]{2,}/g, " ");
+    return s.trim();
   }
 
   function userWantsConcreteRecommendation(q) {
@@ -509,10 +537,13 @@ Responde en español, de forma concisa y útil.`.trim();
     const extracted = extractJsonObjectAnywhere(text);
     if (extracted?.obj && typeof extracted.obj === "object") {
       const parsed = extracted.obj;
-      if (typeof parsed.reply === "string" && parsed.reply.trim()) reply = parsed.reply.trim();
-      if (extracted.after && extracted.after.length > 0) {
-        // Añade explicación extra sin mostrar JSON.
-        reply = `${reply}\n\n${extracted.after}`;
+      if (typeof parsed.reply === "string" && parsed.reply.trim()) {
+        reply = parsed.reply.trim();
+        if (extracted.after) reply = `${reply}\n\n${extracted.after}`;
+      } else if (extracted.bare) {
+        // El modelo incrustó el objeto proposal directamente en el texto.
+        const cleaned = [extracted.before, extracted.after].filter(Boolean).join("\n\n").trim();
+        if (cleaned) reply = cleaned;
       }
       proposal = validateProposal(parsed.proposal, safeWardrobe);
     }
@@ -521,6 +552,7 @@ Responde en español, de forma concisa y útil.`.trim();
       if (inferred) proposal = validateProposal(inferred, safeWardrobe);
     }
 
+    reply = sanitizeReplyText(reply);
     reply = enrichShortReply(reply, user, proposal, safeWardrobe);
 
     res.json({ reply, ...(proposal ? { proposal } : {}) });
