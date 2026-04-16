@@ -281,106 +281,6 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     return null;
   }
 
-  function buildAutoProposalFromWardrobe(items, userQuestion) {
-    const q = String(userQuestion || "").toLowerCase();
-    const intent =
-      q.includes("outfit") ||
-      q.includes("conjunto") ||
-      q.includes("qué me pongo") ||
-      q.includes("que me pongo") ||
-      q.includes("ponme") ||
-      q.includes("ponerme") ||
-      q.includes("vestir");
-    if (!intent) return null;
-
-    const wantsSummer =
-      q.includes("verano") ||
-      q.includes("veranieg") ||
-      q.includes("calor") ||
-      q.includes("fresco") ||
-      q.includes("ligero") ||
-      q.includes("corto");
-
-    const badTokens = [
-      "pijama", "navidad", "bata", "pantuf", "zapatilla de casa",
-      "bufanda", "gorro", "guantes", "pasamont",
-      "traje", "corbata", "pajarita",
-    ];
-    const summerBadTokens = ["cuero", "abrigo", "plumas", "lana", "jersey"];
-
-    const isBad = (it) => {
-      const name = String(it?.name || "").toLowerCase();
-      if (badTokens.some((t) => name.includes(t))) return true;
-      if (wantsSummer && summerBadTokens.some((t) => name.includes(t))) return true;
-      return false;
-    };
-
-    const neutrals = new Set(["#1a1a1a", "#000000", "#fafafa", "#ffffff", "#9e9e9e", "#1c2b4a", "#3a6ea5", "#d4b896", "#c9a96e"]);
-    const normHex = (hex) => String(hex || "").trim().toLowerCase();
-    const scoreItem = (it) => {
-      let s = 0;
-      const name = String(it?.name || "").toLowerCase();
-      const brand = String(it?.brand || "").toLowerCase();
-      const color = normHex(it?.color);
-      if (neutrals.has(color)) s += 2;
-      if (name.length > 2) s += 0.3;
-      if (brand && brand !== "—") s += 0.2;
-      if (wantsSummer) {
-        if (name.includes("lino") || name.includes("algod") || name.includes("short") || name.includes("bermuda")) s += 2;
-        if (name.includes("chaqueta") || name.includes("abrigo")) s -= 1.5;
-      }
-      return s;
-    };
-
-    const candidatesForCats = (cats) =>
-      items
-        .filter((it) => it && cats.includes(it.category) && !isBad(it))
-        .sort((a, b) => scoreItem(b) - scoreItem(a));
-
-    const tops = candidatesForCats(SLOT_RULES.top.cats);
-    const bottoms = candidatesForCats(SLOT_RULES.bottom.cats);
-    const shoes = candidatesForCats(SLOT_RULES.shoes.cats);
-    const outers = wantsSummer ? [] : candidatesForCats(SLOT_RULES.outerwear.cats);
-    const mids = wantsSummer ? [] : candidatesForCats(SLOT_RULES.mid.cats);
-    const accs = wantsSummer ? [] : candidatesForCats(SLOT_RULES.accessory.cats);
-
-    if (!tops.length || !bottoms.length || !shoes.length) return null;
-
-    // Intenta un match simple por “neutros” y evita combinaciones raras
-    const pick3 = () => {
-      const top = tops[0];
-      const bottom = bottoms.find((b) => !top || String(b.id) !== String(top.id)) || bottoms[0];
-      const shoe = shoes.find((s) => String(s.id) !== String(top.id) && String(s.id) !== String(bottom.id)) || shoes[0];
-      return { top, bottom, shoes: shoe };
-    };
-
-    const core = pick3();
-    if (!core.top || !core.bottom || !core.shoes) return null;
-
-    const extra = outers[0] || mids[0] || accs[0] || null;
-
-    const slots = {
-      top: core.top.id,
-      bottom: core.bottom.id,
-      shoes: core.shoes.id,
-    };
-    if (extra) {
-      if (outers[0]) slots.outerwear = outers[0].id;
-      else if (mids[0]) slots.mid = mids[0].id;
-      else if (accs[0]) slots.accessory = accs[0].id;
-    }
-
-    return {
-      confidence: extra ? 0.88 : 0.72,
-      title: wantsSummer ? "Outfit veraniego" : "Outfit del armario",
-      rationale: wantsSummer
-        ? "He elegido prendas más ligeras y combinables de tu armario para un look veraniego."
-        : "He elegido prendas combinables de tu armario para un conjunto completo.",
-      notes: "",
-      slots,
-    };
-  }
-
   function userWantsConcreteRecommendation(q) {
     const s = String(q || "").toLowerCase();
     return (
@@ -461,6 +361,11 @@ REGLA CRÍTICA PARA "reply":
 - Nunca respondas solo con una etiqueta o título suelto (por ejemplo solo "Un outfit casual veraniego" sin explicar nada más).
 - Si incluyes "proposal", en "reply" describe el outfit con los nombres de las prendas del armario y por qué encajan (clima, ocasión, colores).
 
+COHERENCIA ENTRE TEXTO Y "proposal" (OBLIGATORIA — lo razona el modelo, sin atajos):
+- Si "proposal" no es null, en "reply" debes referirte SOLO a las prendas cuyos ids figuran en proposal.slots. Usa los nombres exactos que aparecen en el armario para esos ids.
+- Si en el texto quieres sugerir otras prendas distintas a las de proposal.slots, entonces pon "proposal": null y explica solo en texto.
+- No inventes marcas ni prendas que no existan en el JSON del armario; cada id de proposal debe existir en el armario.
+
 SALIDA OBLIGATORIA (JSON puro, sin markdown):
 Devuelve SIEMPRE un JSON con esta forma:
 {
@@ -481,10 +386,10 @@ Devuelve SIEMPRE un JSON con esta forma:
   }
 }
 Reglas para proposal:
-- Incluye "proposal" cuando puedas rellenar al menos top + bottom + shoes con IDs del armario (chaqueta, jersey y accesorio son opcionales).
-- Pon "confidence" entre 0 y 1 según lo seguro que estés (no ocultes propuestas por baja confianza: el usuario decide).
+- Incluye "proposal" solo cuando, tras razonar sobre la petición del usuario, puedas rellenar al menos top + bottom + shoes con IDs reales del armario (chaqueta, jersey y accesorio son opcionales).
+- Pon "confidence" entre 0 y 1 según lo seguro que estés (el usuario decide si guarda).
 - No inventes prendas; si no existe en el armario, no propongas.
-- Si no puedes armar esas tres piezas con IDs reales, pon "proposal": null.
+- Si no puedes armar esas tres piezas con IDs reales alineadas con lo que explicas, pon "proposal": null.
 
 ${context}
 
@@ -514,7 +419,7 @@ Responde en español, de forma concisa y útil.`.trim();
         },
         body: JSON.stringify({
           model: GROQ_MODEL,
-          temperature: 0.7,
+          temperature: 0.65,
           max_tokens: 1400,
           messages: [
             { role: "system", content: system },
@@ -546,15 +451,6 @@ Responde en español, de forma concisa y útil.`.trim();
         reply = `${reply}\n\n${extracted.after}`;
       }
       proposal = validateProposal(parsed.proposal, safeWardrobe);
-    }
-    if (!proposal) {
-      const auto = buildAutoProposalFromWardrobe(safeWardrobe, user);
-      if (auto) {
-        proposal = validateProposal(auto, safeWardrobe) || null;
-        if (proposal && (!reply || reply === text)) {
-          reply = "Te propongo un outfit completo con prendas de tu armario. Si te gusta, puedes aceptarlo y guardarlo.";
-        }
-      }
     }
 
     reply = enrichShortReply(reply, user, proposal, safeWardrobe);
