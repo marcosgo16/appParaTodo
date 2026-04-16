@@ -234,6 +234,105 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     };
   }
 
+  function extractJsonObjectAnywhere(text) {
+    if (typeof text !== "string") return null;
+    const trimmed = text.trim();
+    const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    const src = fence ? fence[1].trim() : trimmed;
+
+    for (let start = src.indexOf("{"); start !== -1; start = src.indexOf("{", start + 1)) {
+      let depth = 0;
+      let inStr = false;
+      let esc = false;
+      for (let i = start; i < src.length; i++) {
+        const ch = src[i];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (ch === "\\") esc = true;
+          else if (ch === "\"") inStr = false;
+          continue;
+        }
+        if (ch === "\"") {
+          inStr = true;
+          continue;
+        }
+        if (ch === "{") depth++;
+        if (ch === "}") depth--;
+        if (depth === 0) {
+          const candidate = src.slice(start, i + 1);
+          try {
+            const obj = JSON.parse(candidate);
+            if (obj && typeof obj === "object" && ("reply" in obj || "proposal" in obj)) {
+              const before = src.slice(0, start).trim();
+              const after = src.slice(i + 1).trim();
+              return { obj, before, after };
+            }
+          } catch {
+            // sigue probando
+          }
+          break;
+        }
+      }
+    }
+    return null;
+  }
+
+  function buildAutoProposalFromWardrobe(items, userQuestion) {
+    const q = String(userQuestion || "").toLowerCase();
+    const intent =
+      q.includes("outfit") ||
+      q.includes("conjunto") ||
+      q.includes("qué me pongo") ||
+      q.includes("que me pongo") ||
+      q.includes("ponme") ||
+      q.includes("ponerme") ||
+      q.includes("vestir");
+    if (!intent) return null;
+
+    const byCat = new Map();
+    for (const it of items) {
+      if (!it || typeof it !== "object") continue;
+      const cat = it.category;
+      if (!cat) continue;
+      if (!byCat.has(cat)) byCat.set(cat, []);
+      byCat.get(cat).push(it);
+    }
+
+    const pickFromCats = (cats) => {
+      for (const c of cats) {
+        const arr = byCat.get(c);
+        if (arr?.length) return arr[0];
+      }
+      return null;
+    };
+
+    const picked = {
+      top: pickFromCats(SLOT_RULES.top.cats),
+      bottom: pickFromCats(SLOT_RULES.bottom.cats),
+      shoes: pickFromCats(SLOT_RULES.shoes.cats),
+      outerwear: pickFromCats(SLOT_RULES.outerwear.cats),
+      mid: pickFromCats(SLOT_RULES.mid.cats),
+      accessory: pickFromCats(SLOT_RULES.accessory.cats),
+    };
+
+    if (!picked.top || !picked.bottom || !picked.shoes) return null;
+
+    // Requiere al menos 4 slots para considerarlo “claro”.
+    const slots = {};
+    for (const k of Object.keys(SLOT_RULES)) {
+      if (picked[k]) slots[k] = picked[k].id;
+    }
+    if (Object.keys(slots).length < 4) return null;
+
+    return {
+      confidence: 0.9,
+      title: "Outfit del armario",
+      rationale: "He elegido prendas que ya tienes y que encajan por categoría para un conjunto completo.",
+      notes: "",
+      slots,
+    };
+  }
+
   const context = `
 Armario del usuario:
 ${JSON.stringify(safeWardrobe, null, 2)}
@@ -331,14 +430,24 @@ Responde en español, de forma concisa y útil.`.trim();
 
     let reply = text;
     let proposal = null;
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed && typeof parsed === "object") {
-        if (typeof parsed.reply === "string" && parsed.reply.trim()) reply = parsed.reply.trim();
-        proposal = validateProposal(parsed.proposal, safeWardrobe);
+    const extracted = extractJsonObjectAnywhere(text);
+    if (extracted?.obj && typeof extracted.obj === "object") {
+      const parsed = extracted.obj;
+      if (typeof parsed.reply === "string" && parsed.reply.trim()) reply = parsed.reply.trim();
+      if (extracted.after && extracted.after.length > 0) {
+        // Añade explicación extra sin mostrar JSON.
+        reply = `${reply}\n\n${extracted.after}`;
       }
-    } catch {
-      // Si el modelo no devuelve JSON válido, devolvemos texto plano.
+      proposal = validateProposal(parsed.proposal, safeWardrobe);
+    }
+    if (!proposal) {
+      const auto = buildAutoProposalFromWardrobe(safeWardrobe, user);
+      if (auto) {
+        proposal = validateProposal(auto, safeWardrobe) || null;
+        if (proposal && (!reply || reply === text)) {
+          reply = "Te propongo un outfit completo con prendas de tu armario. Si te gusta, puedes aceptarlo y guardarlo.";
+        }
+      }
     }
 
     res.json({ reply, ...(proposal ? { proposal } : {}) });

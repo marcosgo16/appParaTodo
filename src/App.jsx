@@ -525,7 +525,44 @@ export default function App() {
       });
       const data = await r.json();
       if (data?.proposal) setAiProposal(data.proposal);
-      setAiMessages(prev => [...prev, { role: "ai", text: data.reply || data.error }]);
+      let text = data.reply || data.error;
+      if (typeof text === "string") {
+        const t = text.trim();
+        const tryExtract = () => {
+          for (let start = t.indexOf("{"); start !== -1; start = t.indexOf("{", start + 1)) {
+            let depth = 0;
+            let inStr = false;
+            let esc = false;
+            for (let i = start; i < t.length; i++) {
+              const ch = t[i];
+              if (inStr) {
+                if (esc) esc = false;
+                else if (ch === "\\") esc = true;
+                else if (ch === "\"") inStr = false;
+                continue;
+              }
+              if (ch === "\"") { inStr = true; continue; }
+              if (ch === "{") depth++;
+              if (ch === "}") depth--;
+              if (depth === 0) {
+                const candidate = t.slice(start, i + 1);
+                try {
+                  const parsed = JSON.parse(candidate);
+                  if (parsed?.reply) {
+                    const after = t.slice(i + 1).trim();
+                    return after ? `${parsed.reply}\n\n${after}` : parsed.reply;
+                  }
+                } catch {}
+                break;
+              }
+            }
+          }
+          return null;
+        };
+        const extracted = tryExtract();
+        if (extracted) text = extracted;
+      }
+      setAiMessages(prev => [...prev, { role: "ai", text }]);
     } catch (e) {
       setAiMessages(prev => [...prev, { role: "ai", text: "Error al conectar con la IA" }]);
     }
