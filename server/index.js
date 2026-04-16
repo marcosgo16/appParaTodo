@@ -289,45 +289,90 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
       q.includes("vestir");
     if (!intent) return null;
 
-    const byCat = new Map();
-    for (const it of items) {
-      if (!it || typeof it !== "object") continue;
-      const cat = it.category;
-      if (!cat) continue;
-      if (!byCat.has(cat)) byCat.set(cat, []);
-      byCat.get(cat).push(it);
-    }
+    const wantsSummer =
+      q.includes("verano") ||
+      q.includes("veranieg") ||
+      q.includes("calor") ||
+      q.includes("fresco") ||
+      q.includes("ligero") ||
+      q.includes("corto");
 
-    const pickFromCats = (cats) => {
-      for (const c of cats) {
-        const arr = byCat.get(c);
-        if (arr?.length) return arr[0];
+    const badTokens = [
+      "pijama", "navidad", "bata", "pantuf", "zapatilla de casa",
+      "bufanda", "gorro", "guantes", "pasamont",
+      "traje", "corbata", "pajarita",
+    ];
+    const summerBadTokens = ["cuero", "abrigo", "plumas", "lana", "jersey"];
+
+    const isBad = (it) => {
+      const name = String(it?.name || "").toLowerCase();
+      if (badTokens.some((t) => name.includes(t))) return true;
+      if (wantsSummer && summerBadTokens.some((t) => name.includes(t))) return true;
+      return false;
+    };
+
+    const neutrals = new Set(["#1a1a1a", "#000000", "#fafafa", "#ffffff", "#9e9e9e", "#1c2b4a", "#3a6ea5", "#d4b896", "#c9a96e"]);
+    const normHex = (hex) => String(hex || "").trim().toLowerCase();
+    const scoreItem = (it) => {
+      let s = 0;
+      const name = String(it?.name || "").toLowerCase();
+      const brand = String(it?.brand || "").toLowerCase();
+      const color = normHex(it?.color);
+      if (neutrals.has(color)) s += 2;
+      if (name.length > 2) s += 0.3;
+      if (brand && brand !== "—") s += 0.2;
+      if (wantsSummer) {
+        if (name.includes("lino") || name.includes("algod") || name.includes("short") || name.includes("bermuda")) s += 2;
+        if (name.includes("chaqueta") || name.includes("abrigo")) s -= 1.5;
       }
-      return null;
+      return s;
     };
 
-    const picked = {
-      top: pickFromCats(SLOT_RULES.top.cats),
-      bottom: pickFromCats(SLOT_RULES.bottom.cats),
-      shoes: pickFromCats(SLOT_RULES.shoes.cats),
-      outerwear: pickFromCats(SLOT_RULES.outerwear.cats),
-      mid: pickFromCats(SLOT_RULES.mid.cats),
-      accessory: pickFromCats(SLOT_RULES.accessory.cats),
+    const candidatesForCats = (cats) =>
+      items
+        .filter((it) => it && cats.includes(it.category) && !isBad(it))
+        .sort((a, b) => scoreItem(b) - scoreItem(a));
+
+    const tops = candidatesForCats(SLOT_RULES.top.cats);
+    const bottoms = candidatesForCats(SLOT_RULES.bottom.cats);
+    const shoes = candidatesForCats(SLOT_RULES.shoes.cats);
+    const outers = wantsSummer ? [] : candidatesForCats(SLOT_RULES.outerwear.cats);
+    const mids = wantsSummer ? [] : candidatesForCats(SLOT_RULES.mid.cats);
+    const accs = wantsSummer ? [] : candidatesForCats(SLOT_RULES.accessory.cats);
+
+    if (!tops.length || !bottoms.length || !shoes.length) return null;
+
+    // Intenta un match simple por “neutros” y evita combinaciones raras
+    const pick3 = () => {
+      const top = tops[0];
+      const bottom = bottoms.find((b) => !top || String(b.id) !== String(top.id)) || bottoms[0];
+      const shoe = shoes.find((s) => String(s.id) !== String(top.id) && String(s.id) !== String(bottom.id)) || shoes[0];
+      return { top, bottom, shoes: shoe };
     };
 
-    if (!picked.top || !picked.bottom || !picked.shoes) return null;
+    const core = pick3();
+    if (!core.top || !core.bottom || !core.shoes) return null;
 
-    // Requiere al menos 4 slots para considerarlo “claro”.
-    const slots = {};
-    for (const k of Object.keys(SLOT_RULES)) {
-      if (picked[k]) slots[k] = picked[k].id;
-    }
-    if (Object.keys(slots).length < 4) return null;
+    // Solo proponemos si además hay 1 pieza extra “razonable” (outerwear o mid o accessory)
+    const extra = (outers[0] || mids[0] || accs[0]) || null;
+    if (!extra) return null;
+
+    const slots = {
+      top: core.top.id,
+      bottom: core.bottom.id,
+      shoes: core.shoes.id,
+    };
+    // Preferimos outerwear > mid > accessory (si no es verano)
+    if (outers[0]) slots.outerwear = outers[0].id;
+    else if (mids[0]) slots.mid = mids[0].id;
+    else if (accs[0]) slots.accessory = accs[0].id;
 
     return {
-      confidence: 0.9,
-      title: "Outfit del armario",
-      rationale: "He elegido prendas que ya tienes y que encajan por categoría para un conjunto completo.",
+      confidence: 0.88,
+      title: wantsSummer ? "Outfit veraniego" : "Outfit del armario",
+      rationale: wantsSummer
+        ? "He elegido prendas más ligeras y combinables de tu armario para un look veraniego."
+        : "He elegido prendas combinables de tu armario para un conjunto completo.",
       notes: "",
       slots,
     };
