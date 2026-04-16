@@ -870,7 +870,14 @@ export default function App() {
           <div style={{...S.card, marginBottom:12, border:`1px solid ${cl.border}`}}>
             <div style={{...S.cardHdr, marginBottom:8}}>
               <div style={{...S.cardName, fontSize:13}}>Outfit propuesto</div>
-              <div style={{...S.cardDate, color:cl.stone}}>Confianza {Math.round((aiProposal.confidence || 0) * 100)}%</div>
+              <div style={{...S.cardDate, color:cl.stone, textAlign:"right" }}>
+                {typeof aiProposal.confidence === "number"
+                  ? `Confianza ${Math.round(aiProposal.confidence * 100)}%`
+                  : "Confianza —"}
+              </div>
+            </div>
+            <div style={{ fontSize:10, color:cl.stone, marginBottom:8, lineHeight:1.4 }}>
+              Es una sugerencia según tu armario; tú decides si lo guardas.
             </div>
             {aiProposal.title ? <div style={{ fontWeight: 600, marginBottom: 8 }}>{aiProposal.title}</div> : null}
             <div style={S.chips}>

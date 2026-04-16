@@ -216,10 +216,14 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     const filledKeys = Object.keys(slots);
     const hasCore = Boolean(slots.top && slots.bottom && slots.shoes);
     if (!hasCore) return null;
-    if (filledKeys.length < 4) return null;
+    // Mínimo conjunto usable: top + bottom + shoes (extras opcionales).
+    if (filledKeys.length < 3) return null;
 
-    const confidence = typeof proposalRaw.confidence === "number" ? proposalRaw.confidence : 0;
-    if (!(confidence >= 0.75)) return null;
+    const rawConf = proposalRaw.confidence;
+    const confidence =
+      typeof rawConf === "number" && Number.isFinite(rawConf)
+        ? Math.min(1, Math.max(0, rawConf))
+        : null;
 
     const title = typeof proposalRaw.title === "string" ? proposalRaw.title.trim().slice(0, 60) : "";
     const notes = typeof proposalRaw.notes === "string" ? proposalRaw.notes.trim().slice(0, 240) : "";
@@ -353,22 +357,21 @@ app.post("/api/ai", requireAuth, aiLimiter, async (req, res) => {
     const core = pick3();
     if (!core.top || !core.bottom || !core.shoes) return null;
 
-    // Solo proponemos si además hay 1 pieza extra “razonable” (outerwear o mid o accessory)
-    const extra = (outers[0] || mids[0] || accs[0]) || null;
-    if (!extra) return null;
+    const extra = outers[0] || mids[0] || accs[0] || null;
 
     const slots = {
       top: core.top.id,
       bottom: core.bottom.id,
       shoes: core.shoes.id,
     };
-    // Preferimos outerwear > mid > accessory (si no es verano)
-    if (outers[0]) slots.outerwear = outers[0].id;
-    else if (mids[0]) slots.mid = mids[0].id;
-    else if (accs[0]) slots.accessory = accs[0].id;
+    if (extra) {
+      if (outers[0]) slots.outerwear = outers[0].id;
+      else if (mids[0]) slots.mid = mids[0].id;
+      else if (accs[0]) slots.accessory = accs[0].id;
+    }
 
     return {
-      confidence: 0.88,
+      confidence: extra ? 0.88 : 0.72,
       title: wantsSummer ? "Outfit veraniego" : "Outfit del armario",
       rationale: wantsSummer
         ? "He elegido prendas más ligeras y combinables de tu armario para un look veraniego."
@@ -450,7 +453,7 @@ FORMATO:
 - Sé conciso y práctico.
 - Da 2-4 propuestas o pasos accionables cuando tenga sentido.
 - Si faltan datos del armario para responder, pregunta 1-2 cosas concretas (ocasión, clima, preferencias).
-- Solo cuando estés MUY seguro (alta confianza) y puedas construir un outfit con prendas EXACTAS del armario, incluye una propuesta estructurada.
+- Cuando puedas armar un outfit con prendas EXACTAS del armario (IDs reales), incluye "proposal". La confianza es solo orientativa; el usuario verá el porcentaje y decidirá si guarda.
 - Para referenciar prendas del armario, usa su campo id EXACTO (numérico o string).
 
 REGLA CRÍTICA PARA "reply":
@@ -478,9 +481,10 @@ Devuelve SIEMPRE un JSON con esta forma:
   }
 }
 Reglas para proposal:
-- Solo si confidence >= 0.85 y puedes rellenar al menos top+bottom+shoes y mínimo 4 slots en total.
+- Incluye "proposal" cuando puedas rellenar al menos top + bottom + shoes con IDs del armario (chaqueta, jersey y accesorio son opcionales).
+- Pon "confidence" entre 0 y 1 según lo seguro que estés (no ocultes propuestas por baja confianza: el usuario decide).
 - No inventes prendas; si no existe en el armario, no propongas.
-- Si no puedes, pon "proposal": null.
+- Si no puedes armar esas tres piezas con IDs reales, pon "proposal": null.
 
 ${context}
 
