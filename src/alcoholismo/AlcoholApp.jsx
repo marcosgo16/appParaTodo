@@ -7,6 +7,7 @@ import {
   fetchAlcoholState,
   putAlcoholState,
   postGoogleAuth,
+  postAlcoholAi,
 } from "../lib/api.js";
 import { getSessionToken, setSessionToken, clearSession } from "../lib/session.js";
 
@@ -163,6 +164,31 @@ export default function AlcoholApp() {
     setTimeout(() => setToast((t) => ({ ...t, on: false })), 2200);
   }, []);
 
+  // ---- IA equivalencias ----
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState([
+    { role: "ai", text: "Dime qué te bebiste y te lo paso a equivalencias de bar (copas, chupitos, cañas…). Ej: “media botella de vino”." },
+  ]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const sendAiMessage = async () => {
+    const question = aiInput.trim();
+    if (!question || aiLoading) return;
+    setAiInput("");
+    const history = aiMessages.slice(-10);
+    setAiMessages((prev) => [...prev, { role: "user", text: question }]);
+    setAiLoading(true);
+    try {
+      const r = await postAlcoholAi({ question, history });
+      const text = (r?.reply || r?.error || "").toString().trim() || "No he podido calcularlo.";
+      setAiMessages((prev) => [...prev, { role: "ai", text }]);
+    } catch (e) {
+      setAiMessages((prev) => [...prev, { role: "ai", text: "Error al conectar con la IA. ¿Está el servidor levantado y con GROQ_API_KEY?" }]);
+    }
+    setAiLoading(false);
+  };
+
   // UI theme (bar antiguo)
   const cl = {
     bg: "#140D08",
@@ -212,6 +238,11 @@ export default function AlcoholApp() {
     mini: { fontSize: 11, color: "rgba(243,233,218,.72)" },
     toast: { position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%) translateY(70px)", background: "rgba(0,0,0,.7)", color: cl.paper, padding: "9px 18px", borderRadius: 30, fontSize: 13, fontWeight: 700, zIndex: 999, whiteSpace: "nowrap", pointerEvents: "none", transition: "transform .3s", border: `1px solid rgba(255,255,255,.10)` },
     toastShow: { transform: "translateX(-50%) translateY(0)" },
+    fab: { position: "fixed", right: 18, bottom: 18, zIndex: 150, border: "none", background: "rgba(200,164,106,.95)", color: cl.ink, width: 56, height: 56, borderRadius: 18, cursor: "pointer", boxShadow: "0 12px 26px rgba(0,0,0,.42)", display: "flex", alignItems: "center", justifyContent: "center" },
+    fabIco: { fontSize: 20, lineHeight: 1, fontWeight: 900 },
+    overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 220, display: "flex", alignItems: "flex-end", justifyContent: "center" },
+    modal: { background: `linear-gradient(180deg, ${cl.wood} 0%, ${cl.wood2} 100%)`, borderRadius: "18px 18px 0 0", padding: 16, width: "100%", maxWidth: isDesktop ? 820 : 520, maxHeight: "82vh", overflow: "hidden", border: `1px solid rgba(255,255,255,.10)` },
+    mHandle: { width: 36, height: 4, background: "rgba(255,255,255,.18)", borderRadius: 999, margin: "0 auto 12px" },
   };
 
   // ---- Init / Sync ----
@@ -860,6 +891,84 @@ export default function AlcoholApp() {
           )}
         </div>
       </div>
+
+      {/* IA Equivalencias */}
+      {aiOpen && (
+        <div
+          style={S.overlay}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setAiOpen(false);
+          }}
+        >
+          <div style={S.modal}>
+            <div style={S.mHandle} />
+            <div style={{ fontFamily: "Georgia,serif", fontSize: 16, color: cl.paper, marginBottom: 4 }}>Equivalencias</div>
+            <div style={{ fontSize: 11, color: cl.muted, marginBottom: 12, letterSpacing: ".10em", textTransform: "uppercase" }}>
+              Conversión a medidas estándar de bar
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", padding: "2px 2px 10px", maxHeight: "54vh" }}>
+              {aiMessages.map((m, i) => (
+                <div
+                  key={i}
+                  style={{
+                    alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                    background: m.role === "user" ? "rgba(0,0,0,.35)" : "rgba(255,255,255,.06)",
+                    color: cl.paper,
+                    border: `1px solid rgba(255,255,255,.10)`,
+                    padding: "9px 12px",
+                    borderRadius: 14,
+                    fontSize: 13,
+                    maxWidth: "88%",
+                    lineHeight: 1.5,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {m.text}
+                </div>
+              ))}
+              {aiLoading && (
+                <div
+                  style={{
+                    alignSelf: "flex-start",
+                    background: "rgba(255,255,255,.06)",
+                    border: `1px solid rgba(255,255,255,.10)`,
+                    padding: "9px 12px",
+                    borderRadius: 14,
+                    fontSize: 13,
+                    color: cl.muted,
+                  }}
+                >
+                  Calculando…
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <input
+                style={{ ...S.finput, flex: 1 }}
+                placeholder="Ej: “una botella de tequila” o “media botella de vino”…"
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendAiMessage();
+                }}
+              />
+              <button type="button" style={{ ...S.btn, ...S.btnP, flex: "none", padding: "10px 16px" }} onClick={sendAiMessage}>
+                →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Botón IA */}
+      <button
+        type="button"
+        aria-label="Abrir equivalencias"
+        style={S.fab}
+        onClick={() => setAiOpen(true)}
+      >
+        <span style={S.fabIco}>≋</span>
+      </button>
 
       <div style={{ ...S.toast, ...(toast.on ? S.toastShow : {}) }}>{toast.msg}</div>
     </div>

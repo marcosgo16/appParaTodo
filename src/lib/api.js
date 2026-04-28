@@ -72,6 +72,19 @@ export async function putAlcoholState({ types, entries }) {
   return r.json();
 }
 
+export async function postAlcoholAi({ question, history }) {
+  const r = await fetch(url("/api/alcohol/ai"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      question,
+      history: Array.isArray(history) ? history : [],
+    }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 export function getApiUrl(path) {
   const env = import.meta.env.VITE_API_URL?.trim();
   const root = env ? env.replace(/\/$/, "") : (import.meta.env.DEV ? "" : "");

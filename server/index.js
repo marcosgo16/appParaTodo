@@ -84,6 +84,15 @@ const aiLimiter = rateLimit({
   message: { error: "Demasiadas peticiones a la IA. Espera un momento y prueba de nuevo." },
 });
 
+const alcoholAiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 min
+  limit: 40, // un poco más permisivo (respuestas cortas)
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: "Demasiadas peticiones a la IA. Espera un momento y prueba de nuevo." },
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -185,6 +194,89 @@ app.put("/api/alcohol/state", requireAuth, async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message) });
+  }
+});
+
+app.post("/api/alcohol/ai", requireAuth, alcoholAiLimiter, async (req, res) => {
+  const { question, history } = req.body ?? {};
+  if (!question) return res.status(400).json({ error: "Falta question" });
+  if (!GROQ_API_KEY) {
+    return res.status(500).json({ error: "Falta GROQ_API_KEY en el servidor (.env)" });
+  }
+
+  const safeHistory = Array.isArray(history) ? history : [];
+  const historyMsgs = safeHistory
+    .slice(-10)
+    .map((m) => {
+      const roleRaw = m?.role === "ai" ? "assistant" : m?.role;
+      const role = roleRaw === "assistant" || roleRaw === "user" ? roleRaw : null;
+      const content = typeof m?.text === "string" ? m.text : "";
+      if (!role || !content.trim()) return null;
+      return { role, content: content.slice(0, 700) };
+    })
+    .filter(Boolean);
+
+  const user = String(question).slice(0, 2000);
+
+  const system = `
+Eres un asistente para CONVERTIR consumos de alcohol a equivalencias de bar (en español).
+
+OBJETIVO:
+- El usuario te escribe algo como "me bebí una botella de X" o "media botella de vino".
+- Responde con una equivalencia razonable usando medidas estándar de bar.
+
+MEDIDAS ESTÁNDAR (usa estas por defecto, si el usuario no especifica):
+- Chupito/shot: 30 ml
+- Copa de vino: 125-150 ml (si necesitas un número, usa 150 ml)
+- Caña: 200 ml
+- Botellín: 330 ml
+- Tercio: 330 ml
+- Quinto: 200 ml
+- Jarra: 500 ml
+- Botella de vino estándar: 750 ml
+- Botella de licor estándar: 700 ml (si se menciona "botella" de un licor tipo tequila/whisky/ron)
+- Cubata/combinado: 50 ml de destilado (más refresco, pero SOLO cuenta el destilado para equivalencias a chupitos)
+
+RESTRICCIONES LÓGICAS (OBLIGATORIAS):
+- No conviertas cerveza a chupitos. Para cerveza usa cañas/botellines/tercios/jarras.
+- No conviertas vino a chupitos. Para vino usa copas/botellas.
+- Para destilados (tequila, ron, whisky, ginebra, licor tipo Baileys/Malibú) usa chupitos o cubatas.
+- Si el usuario pide una conversión absurda, recházala y ofrece la conversión correcta.
+
+SALIDA:
+- Respuesta corta, 2-6 líneas máximo.
+- Incluye rango cuando sea más realista (ej. 23-24 chupitos).
+- Si falta un dato clave (tamaño de botella fuera de estándar, tipo de vaso), pregunta 1 sola aclaración, pero intenta resolver con estándares primero.
+`.trim();
+
+  try {
+    const r = await fetch(`${GROQ_BASE_URL}/openai/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0.2,
+        max_tokens: 500,
+        messages: [
+          { role: "system", content: system },
+          ...historyMsgs,
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const msg = data?.error?.message || data?.error?.type || `Groq error ${r.status}`;
+      return res.status(502).json({ error: msg });
+    }
+    const text = data.choices?.[0]?.message?.content;
+    if (!text) throw new Error("Sin respuesta del modelo");
+    res.json({ reply: String(text).trim() });
   } catch (e) {
     res.status(500).json({ error: String(e.message) });
   }
