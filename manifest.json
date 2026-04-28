@@ -1,15 +1,15 @@
 {
-  "name": "Outfit Maker",
-  "short_name": "Outfit",
-  "description": "Tu armario personal",
-  "start_url": "/outfit-maker/",
+  "name": "App Para Todo",
+  "short_name": "App",
+  "description": "Dos apps en una: outfits y alcohol",
+  "start_url": "/appParaTodo/",
   "display": "standalone",
   "background_color": "#F5F0E8",
   "theme_color": "#1C2B4A",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/outfit-maker/favicon.svg",
+      "src": "/appParaTodo/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
