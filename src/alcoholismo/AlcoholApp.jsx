@@ -11,6 +11,354 @@ import {
 } from "../lib/api.js";
 import { getSessionToken, setSessionToken, clearSession } from "../lib/session.js";
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function parseISODate(iso) {
+  if (typeof iso !== "string") return null;
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  const dt = new Date(y, mo - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return dt;
+}
+
+function toISODate(dt) {
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+
+function formatESShort(iso) {
+  const dt = parseISODate(iso);
+  if (!dt) return iso || "";
+  return `${pad2(dt.getDate())}/${pad2(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+}
+
+function AppleSelect({ value, options, onChange, renderValue, buttonStyle, menuMaxH = 280 }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc, true);
+    return () => document.removeEventListener("mousedown", onDoc, true);
+  }, [open]);
+
+  const current = options.find((o) => String(o.value) === String(value)) || options[0] || null;
+
+  return (
+    <div ref={rootRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        style={{
+          ...buttonStyle,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {renderValue ? renderValue(current) : current?.label}
+        </div>
+        <div style={{ opacity: 0.75, fontSize: 12, flexShrink: 0 }}>▾</div>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: "calc(100% + 8px)",
+            background: "rgba(20,20,22,.96)",
+            border: "1px solid rgba(255,255,255,.14)",
+            borderRadius: 16,
+            overflow: "hidden",
+            boxShadow: "0 22px 70px rgba(0,0,0,.55)",
+            zIndex: 400,
+            maxHeight: menuMaxH,
+            overflowY: "auto",
+            backdropFilter: "saturate(180%) blur(16px)",
+          }}
+        >
+          {options.map((o) => {
+            const on = String(o.value) === String(value);
+            return (
+              <button
+                key={String(o.value)}
+                type="button"
+                onClick={() => {
+                  onChange(o.value);
+                  setOpen(false);
+                }}
+                style={{
+                  width: "100%",
+                  border: "none",
+                  background: on ? "rgba(255,255,255,.12)" : "transparent",
+                  color: "rgba(255,255,255,.92)",
+                  padding: "10px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {o.label}
+                </div>
+                {on ? <div style={{ opacity: 0.9, fontWeight: 900 }}>✓</div> : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppleDatePicker({ value, onChange, buttonStyle }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  const selected = parseISODate(value) || new Date();
+  const [viewY, setViewY] = useState(selected.getFullYear());
+  const [viewM, setViewM] = useState(selected.getMonth()); // 0-11
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc, true);
+    return () => document.removeEventListener("mousedown", onDoc, true);
+  }, [open]);
+
+  useEffect(() => {
+    const dt = parseISODate(value);
+    if (!dt) return;
+    setViewY(dt.getFullYear());
+    setViewM(dt.getMonth());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const monthName = new Date(viewY, viewM, 1).toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  const first = new Date(viewY, viewM, 1);
+  // Lunes=0 ... Domingo=6
+  const firstDow = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(viewY, viewM, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const isSameDay = (a, b) =>
+    a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  return (
+    <div ref={rootRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        style={{
+          ...buttonStyle,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div>{formatESShort(value)}</div>
+        <div style={{ opacity: 0.75, fontSize: 12, flexShrink: 0 }}>📅</div>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "calc(100% + 8px)",
+            width: 320,
+            maxWidth: "92vw",
+            background: "rgba(20,20,22,.96)",
+            border: "1px solid rgba(255,255,255,.14)",
+            borderRadius: 18,
+            overflow: "hidden",
+            boxShadow: "0 22px 70px rgba(0,0,0,.55)",
+            zIndex: 450,
+            backdropFilter: "saturate(180%) blur(16px)",
+          }}
+        >
+          <div style={{ padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: "rgba(255,255,255,.92)", textTransform: "capitalize" }}>
+              {monthName}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const dt = new Date(viewY, viewM - 1, 1);
+                  setViewY(dt.getFullYear());
+                  setViewM(dt.getMonth());
+                }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,.14)",
+                  background: "rgba(255,255,255,.06)",
+                  color: "rgba(255,255,255,.92)",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                }}
+                aria-label="Mes anterior"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const dt = new Date(viewY, viewM + 1, 1);
+                  setViewY(dt.getFullYear());
+                  setViewM(dt.getMonth());
+                }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,.14)",
+                  background: "rgba(255,255,255,.06)",
+                  color: "rgba(255,255,255,.92)",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                }}
+                aria-label="Mes siguiente"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          <div style={{ padding: "0 12px 10px" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(7, 1fr)",
+                gap: 6,
+                fontSize: 11,
+                color: "rgba(255,255,255,.58)",
+                marginBottom: 8,
+                textAlign: "center",
+                userSelect: "none",
+              }}
+            >
+              {["L", "M", "X", "J", "V", "S", "D"].map((x) => (
+                <div key={x}>{x}</div>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+              {cells.map((dt, idx) => {
+                if (!dt) return <div key={idx} style={{ height: 34 }} />;
+                const isSel = isSameDay(dt, selected);
+                const isToday = isSameDay(dt, new Date());
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      onChange(toISODate(dt));
+                      setOpen(false);
+                    }}
+                    style={{
+                      height: 34,
+                      borderRadius: 12,
+                      border: isSel ? "1px solid rgba(255,255,255,.22)" : "1px solid rgba(255,255,255,.10)",
+                      background: isSel ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.06)",
+                      color: "rgba(255,255,255,.92)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                      fontWeight: isSel ? 900 : 700,
+                      outline: isToday ? "2px solid rgba(200,164,106,.55)" : "none",
+                      outlineOffset: 0,
+                    }}
+                  >
+                    {dt.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const t = new Date();
+                  const iso = toISODate(t);
+                  onChange(iso);
+                  setViewY(t.getFullYear());
+                  setViewM(t.getMonth());
+                  setOpen(false);
+                }}
+                style={{
+                  border: "1px solid rgba(255,255,255,.14)",
+                  background: "rgba(255,255,255,.06)",
+                  color: "rgba(255,255,255,.92)",
+                  padding: "8px 10px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                }}
+              >
+                Hoy
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                style={{
+                  border: "1px solid rgba(255,255,255,.14)",
+                  background: "rgba(255,255,255,.06)",
+                  color: "rgba(255,255,255,.92)",
+                  padding: "8px 10px",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function load(key, fallback) {
   try {
     const v = localStorage.getItem(key);
@@ -223,7 +571,7 @@ export default function AlcoholApp() {
     fg: { marginBottom: 12 },
     flbl: { display: "block", fontSize: 12, fontWeight: 800, letterSpacing: ".01em", color: cl.muted, marginBottom: 6 },
     finput: { width: "100%", padding: "11px 12px", border: `1px solid rgba(255,255,255,.14)`, borderRadius: 14, fontFamily: "inherit", fontSize: 14, color: cl.paper, background: "rgba(255,255,255,.06)", outline: "none" },
-    frow: { display: "grid", gridTemplateColumns: isDesktop ? "1fr 1fr 1fr" : "1fr", gap: 10, marginBottom: 12 },
+    frow: { display: "grid", gridTemplateColumns: isDesktop ? "1fr 1.6fr .8fr" : "1fr", gap: 10, marginBottom: 12 },
     btn: { padding: 12, borderRadius: 14, fontFamily: "inherit", fontSize: 14, fontWeight: 900, cursor: "pointer", border: "none" },
     btnP: { background: cl.brass, color: cl.ink, boxShadow: "0 14px 30px rgba(0,0,0,.28)" },
     btnS: { background: "rgba(0,0,0,.22)", color: cl.paper, border: `1px solid rgba(255,255,255,.14)` },
@@ -507,6 +855,17 @@ export default function AlcoholApp() {
 
   return (
     <div style={S.page}>
+      <style>{`
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type="number"] {
+          -moz-appearance: textfield;
+          appearance: textfield;
+        }
+      `}</style>
       {!initDone && (
         <div
           style={{
@@ -611,17 +970,19 @@ export default function AlcoholApp() {
                       <div style={S.frow}>
                         <div style={S.fg}>
                           <label style={S.flbl}>Fecha</label>
-                          <input type="date" style={S.finput} value={date} onChange={(e) => setDate(e.target.value)} />
+                          <AppleDatePicker value={date} onChange={setDate} buttonStyle={S.finput} />
                         </div>
                         <div style={S.fg}>
                           <label style={S.flbl}>Tipo</label>
-                          <select style={S.finput} value={typeId} onChange={(e) => setTypeId(e.target.value)}>
-                            {safeTypes.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.emoji ? `${t.emoji} ` : ""}{t.name}
-                              </option>
-                            ))}
-                          </select>
+                          <AppleSelect
+                            value={typeId}
+                            onChange={(v) => setTypeId(String(v))}
+                            buttonStyle={S.finput}
+                            options={safeTypes.map((t) => ({
+                              value: t.id,
+                              label: `${t.emoji ? `${t.emoji} ` : ""}${t.name}`,
+                            }))}
+                          />
                         </div>
                         <div style={S.fg}>
                           <label style={S.flbl}>Cantidad</label>
@@ -695,13 +1056,13 @@ export default function AlcoholApp() {
                 <div style={S.cardTitle}>Selecciona mes</div>
                 <div style={S.fg}>
                   <label style={S.flbl}>Mes</label>
-                  <select style={S.finput} value={month} onChange={(e) => setMonth(e.target.value)}>
-                    {months.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
+                  <AppleSelect
+                    value={month}
+                    onChange={(v) => setMonth(String(v))}
+                    buttonStyle={S.finput}
+                    options={months.map((m) => ({ value: m, label: m }))}
+                    menuMaxH={240}
+                  />
                 </div>
                 <div style={{ fontSize: 12, color: cl.muted, lineHeight: 1.6 }}>
                   Total del mes: <strong style={{ color: cl.paper }}>{monthTotal}</strong>
@@ -773,13 +1134,15 @@ export default function AlcoholApp() {
                   <div style={S.cardTitle}>Estadísticas</div>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     <div style={{ fontSize: 11, color: cl.muted, letterSpacing: ".12em", textTransform: "uppercase" }}>Año</div>
-                    <select style={{ ...S.finput, width: 120, padding: "8px 10px" }} value={year} onChange={(e) => setYear(e.target.value)}>
-                      {years.map((y) => (
-                        <option key={y} value={y}>
-                          {y}
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ width: 130 }}>
+                      <AppleSelect
+                        value={year}
+                        onChange={(v) => setYear(String(v))}
+                        buttonStyle={{ ...S.finput, padding: "10px 12px" }}
+                        options={years.map((y) => ({ value: y, label: y }))}
+                        menuMaxH={220}
+                      />
+                    </div>
                     <div style={{ fontSize: 12, color: cl.muted }}>
                       Total: <strong style={{ color: cl.paper }}>{yearTotal}</strong>
                     </div>
@@ -830,13 +1193,13 @@ export default function AlcoholApp() {
                   </div>
                   <div style={S.fg}>
                     <label style={S.flbl}>Emoji</label>
-                    <select style={S.finput} value={newTypeEmoji} onChange={(e) => setNewTypeEmoji(e.target.value)}>
-                      {["🥃", "🍺", "🍷", "🍹", "🍸", "🍾", "🧉"].map((em) => (
-                        <option key={em} value={em}>
-                          {em}
-                        </option>
-                      ))}
-                    </select>
+                    <AppleSelect
+                      value={newTypeEmoji}
+                      onChange={(v) => setNewTypeEmoji(String(v))}
+                      buttonStyle={S.finput}
+                      options={["🥃", "🍺", "🍷", "🍹", "🍸", "🍾", "🧉"].map((em) => ({ value: em, label: em }))}
+                      menuMaxH={220}
+                    />
                   </div>
                   <button type="button" style={{ ...S.btn, ...S.btnP, width: "100%" }} onClick={addType}>
                     Añadir tipo
