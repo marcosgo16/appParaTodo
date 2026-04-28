@@ -2,6 +2,18 @@
 
 Tu armario personal como app web.
 
+## Alcoholismo (nueva app)
+
+Este repo ahora incluye una segunda app dentro de la misma web:
+
+- `https://TU_USUARIO.github.io/appParaTodo/alcoholismo`
+
+Incluye:
+- Registro diario de consumos (tipos personalizados)
+- Vista mensual con totales
+- Estadísticas con gráficas (por mes y top de tipos)
+- Mismo sistema de login con Google + sincronización en BDD (si lo tienes configurado)
+
 ## Cómo subir a GitHub Pages
 
 ### Requisitos
@@ -69,7 +81,7 @@ Esto construye la app y la publica. Tarda ~30 segundos.
 ### ✅ Tu app estará en:
 
 ```
-https://TU_USUARIO.github.io/outfit-maker/
+https://TU_USUARIO.github.io/appParaTodo/
 ```
 
 ---

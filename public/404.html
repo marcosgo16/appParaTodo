@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redirigiendo…</title>
+    <meta http-equiv="refresh" content="0;url=/appParaTodo/" />
+    <script>
+      (function () {
+        var l = window.location;
+        // Guardamos ruta completa para reconstruirla en index.html
+        var path = l.pathname.replace(/^\/appParaTodo/, "") || "/";
+        var q = (l.search || "").replace(/^\?/, "");
+        var h = (l.hash || "").replace(/^#/, "");
+        var target =
+          "/appParaTodo/?p=" +
+          encodeURIComponent(path) +
+          (q ? "&q=" + encodeURIComponent(q) : "") +
+          (h ? "&h=" + encodeURIComponent(h) : "");
+        l.replace(target);
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>
+

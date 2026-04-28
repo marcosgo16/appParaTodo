@@ -56,6 +56,22 @@ export async function putRemoteState({ wardrobe, outfits }) {
   return r.json();
 }
 
+export async function fetchAlcoholState() {
+  const r = await fetch(url("/api/alcohol/state"), { headers: authHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function putAlcoholState({ types, entries }) {
+  const r = await fetch(url("/api/alcohol/state"), {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify({ types, entries }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 export function getApiUrl(path) {
   const env = import.meta.env.VITE_API_URL?.trim();
   const root = env ? env.replace(/\/$/, "") : (import.meta.env.DEV ? "" : "");

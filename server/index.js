@@ -13,6 +13,8 @@ const UserStateSchema = new mongoose.Schema(
     picture: { type: String, default: "" },
     wardrobe: { type: Array, default: [] },
     outfits: { type: Array, default: [] },
+    alcoholTypes: { type: Array, default: [] },
+    alcoholEntries: { type: Array, default: [] },
   },
   { timestamps: true }
 );
@@ -145,6 +147,40 @@ app.put("/api/state", requireAuth, async (req, res) => {
         email: req.user.email,
         wardrobe: Array.isArray(wardrobe) ? wardrobe : [],
         outfits: Array.isArray(outfits) ? outfits : [],
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message) });
+  }
+});
+
+app.get("/api/alcohol/state", requireAuth, async (req, res) => {
+  try {
+    const doc = await UserState.findOne({ googleSub: req.user.sub }).lean();
+    if (!doc) return res.json({ types: [], entries: [] });
+    res.json({
+      types: doc.alcoholTypes ?? [],
+      entries: doc.alcoholEntries ?? [],
+      email: doc.email ?? "",
+      name: doc.name ?? "",
+      picture: doc.picture ?? "",
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message) });
+  }
+});
+
+app.put("/api/alcohol/state", requireAuth, async (req, res) => {
+  try {
+    const { types, entries } = req.body ?? {};
+    await UserState.findOneAndUpdate(
+      { googleSub: req.user.sub },
+      {
+        email: req.user.email,
+        alcoholTypes: Array.isArray(types) ? types : [],
+        alcoholEntries: Array.isArray(entries) ? entries : [],
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );

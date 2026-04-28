@@ -1,16 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { GoogleOAuthProvider } from "@react-oauth/google";
-import App from "./App.jsx";
+import RouterApp from "./RouterApp.jsx";
 
 const googleId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const rootEl = (
   googleId ? (
     <GoogleOAuthProvider clientId={googleId}>
-      <App />
+      <RouterApp />
     </GoogleOAuthProvider>
   ) : (
-    <App />
+    <RouterApp />
   )
 );
 
