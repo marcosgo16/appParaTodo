@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
     <title>Outfit Maker</title>
-    <link rel="icon" type="image/svg+xml" href="/outfit-maker/favicon.svg" />
-    <link rel="apple-touch-icon" href="/outfit-maker/favicon.svg" />
-    <link rel="manifest" href="/outfit-maker/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/appParaTodo/favicon.svg" />
+    <link rel="apple-touch-icon" href="/appParaTodo/favicon.svg" />
+    <link rel="manifest" href="/appParaTodo/manifest.json" />
     <meta name="theme-color" content="#1C2B4A" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,7 +17,24 @@
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { background: #F5F0E8; -webkit-tap-highlight-color: transparent; }
     </style>
-    <script type="module" crossorigin src="/outfit-maker/assets/index-BPPQxwAe.js"></script>
+    <!-- Soporte SPA en GitHub Pages: 404.html redirige y aquí reconstruimos la ruta -->
+    <script>
+      (function () {
+        var l = window.location;
+        var BASE = "/appParaTodo/"; // inyectado por Vite, ej "/appParaTodo/"
+        var baseNoSlash = BASE.replace(/\/$/, "");
+        // 404.html redirige a "<BASE>/?p=<ruta>&q=<query>&h=<hash>"
+        var params = new URLSearchParams(l.search);
+        var p = params.get("p");
+        if (!p) return;
+        var q = params.get("q") || "";
+        var h = params.get("h") || "";
+        // Limpia la URL para que BrowserRouter vea la ruta real.
+        var newUrl = l.origin + baseNoSlash + p + (q ? "?" + q : "") + (h ? "#" + h : "");
+        window.history.replaceState(null, "", newUrl);
+      })();
+    </script>
+    <script type="module" crossorigin src="/appParaTodo/assets/index-i15F_p4j.js"></script>
   </head>
   <body>
     <div id="root"></div>
