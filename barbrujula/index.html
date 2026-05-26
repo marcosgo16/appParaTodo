@@ -474,7 +474,9 @@
     var q = '[out:json][timeout:15];'
       + '(node["amenity"="bar"](around:1000,' + lat + ',' + lon + ');'
       + 'node["amenity"="pub"](around:1000,' + lat + ',' + lon + ');'
-      + 'node["amenity"="nightclub"](around:1000,' + lat + ',' + lon + '););'
+      + 'node["amenity"="nightclub"](around:1000,' + lat + ',' + lon + ');'
+      + 'node["amenity"="cafe"](around:1000,' + lat + ',' + lon + ');'
+      + 'node["amenity"="restaurant"](around:1000,' + lat + ',' + lon + '););'
       + 'out body;';
 
     try {
