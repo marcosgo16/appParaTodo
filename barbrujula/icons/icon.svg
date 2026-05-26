@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="44" fill="#0a0a0a"/>
+  <circle cx="96" cy="96" r="76" fill="#111" stroke="#1e1e1e" stroke-width="2"/>
+  <line x1="96" y1="22" x2="96" y2="40" stroke="#ff6b35" stroke-width="4" stroke-linecap="round"/>
+  <line x1="96" y1="170" x2="96" y2="152" stroke="#444" stroke-width="3" stroke-linecap="round"/>
+  <line x1="170" y1="96" x2="152" y2="96" stroke="#444" stroke-width="3" stroke-linecap="round"/>
+  <line x1="22" y1="96" x2="40" y2="96" stroke="#444" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="96,40 111,96 96,89 81,96" fill="#ff6b35"/>
+  <polygon points="96,152 111,96 96,103 81,96" fill="#333"/>
+  <circle cx="96" cy="96" r="7" fill="#0a0a0a" stroke="#555" stroke-width="2"/>
+  <text x="96" y="30" text-anchor="middle" font-family="-apple-system,sans-serif" font-size="11" font-weight="700" fill="#ff6b35">N</text>
+</svg>
