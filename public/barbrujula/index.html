@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BarBrújula">
+  <title>BarBrújula</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" id="ati">
+  <style>
+    *, *::before, *::after {
+      margin: 0; padding: 0; box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html, body {
+      height: 100%; overflow: hidden;
+      background: #0a0a0a; color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; min-height: 100dvh;
+    }
+
+    /* ---- Screens ---- */
+    .screen {
+      display: none; width: 100%; height: 100%;
+      min-height: 100vh; min-height: 100dvh;
+      flex-direction: column; align-items: center;
+      justify-content: center; text-align: center;
+      padding: 32px 24px;
+      padding-top: max(env(safe-area-inset-top, 0px), 32px);
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 32px);
+    }
+    .screen.active { display: flex; }
+
+    /* ---- Init screen ---- */
+    .init-icon {
+      font-size: 80px; line-height: 1;
+      animation: bob 2.4s ease-in-out infinite;
+    }
+    @keyframes bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    .init-title {
+      margin-top: 20px;
+      font-size: 36px; font-weight: 800; letter-spacing: -.03em;
+    }
+    .init-sub {
+      margin-top: 8px; font-size: 16px;
+      color: rgba(255,255,255,.45); line-height: 1.5;
+    }
+    .btn-activate {
+      margin-top: 52px;
+      background: linear-gradient(135deg, #ff6b35, #f7931e);
+      color: #fff; border: none; border-radius: 100px;
+      padding: 18px 54px; font-size: 19px; font-weight: 700;
+      cursor: pointer; letter-spacing: -.01em;
+      box-shadow: 0 8px 36px rgba(255,107,53,.45);
+      transition: transform .12s, box-shadow .12s, opacity .12s;
+    }
+    .btn-activate:active { transform: scale(.96); box-shadow: 0 4px 16px rgba(255,107,53,.3); }
+    .btn-activate:disabled { opacity: .6; }
+    .init-error {
+      margin-top: 20px; font-size: 14px;
+      color: #ff6060; max-width: 300px; line-height: 1.5;
+    }
+
+    /* ---- Main screen ---- */
+    #screen-main {
+      justify-content: space-between;
+      gap: 0;
+    }
+
+    .top-bar {
+      width: 100%; display: flex;
+      align-items: center; justify-content: space-between;
+      padding: 0 4px; flex-shrink: 0;
+    }
+    .top-title { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 100px; padding: 4px 10px 4px 8px;
+      font-size: 12px; font-weight: 600;
+      color: rgba(255,255,255,.5);
+      transition: all .3s;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #44dd88;
+      box-shadow: 0 0 6px rgba(68,221,136,.8);
+      animation: blink 2s ease infinite;
+      flex-shrink: 0;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .status-dot.searching { background: #ffaa22; box-shadow: 0 0 6px rgba(255,170,34,.8); }
+    .status-dot.err { background: #ff5555; box-shadow: 0 0 6px rgba(255,85,85,.8); animation: none; }
+
+    /* ---- Compass ---- */
+    .compass-wrap {
+      position: relative; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .compass-ring {
+      width: min(74vw, 320px); height: min(74vw, 320px);
+      transition: filter .5s;
+    }
+    .compass-arrow-wrap {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: transform .14s ease-out;
+    }
+    .compass-arrow {
+      width: min(27vw, 116px); height: min(27vw, 116px);
+    }
+
+    /* Arrived state */
+    .arrived .compass-ring {
+      animation: glow-ring 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes glow-ring {
+      from { filter: drop-shadow(0 0 12px rgba(68,221,136,.4)); }
+      to   { filter: drop-shadow(0 0 32px rgba(68,221,136,.85)); }
+    }
+
+    /* ---- Bar info ---- */
+    .bar-info { text-align: center; padding: 0 16px; flex-shrink: 0; }
+    .bar-name {
+      font-size: clamp(20px, 6vw, 26px);
+      font-weight: 800; letter-spacing: -.02em;
+      line-height: 1.2; margin-bottom: 6px;
+    }
+    .bar-dist {
+      font-size: clamp(14px, 4vw, 17px);
+      color: rgba(255,255,255,.5); font-weight: 500;
+      transition: opacity .3s;
+    }
+    .bar-dist strong { color: #ff6b35; font-weight: 700; }
+    .arrived-badge {
+      display: none; margin-top: 10px;
+      font-size: 17px; font-weight: 700; color: #44dd88;
+      animation: pop-in .35s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes pop-in {
+      from { opacity: 0; transform: scale(.7) translateY(6px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .arrived .arrived-badge { display: block; }
+    .arrived .bar-dist { opacity: 0; }
+
+    /* ---- Bottom ---- */
+    .bottom-area { width: 100%; flex-shrink: 0; }
+    .bottom-row {
+      display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+    }
+    .btn-sm {
+      background: rgba(255,255,255,.07);
+      border: 1px solid rgba(255,255,255,.11);
+      color: rgba(255,255,255,.75);
+      border-radius: 100px; padding: 10px 22px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: background .12s;
+    }
+    .btn-sm:active { background: rgba(255,255,255,.14); }
+    .btn-sm.orange {
+      color: #ff6b35;
+      border-color: rgba(255,107,53,.28);
+      background: rgba(255,107,53,.08);
+    }
+    .no-compass-note {
+      margin-top: 10px; text-align: center;
+      font-size: 12px; color: rgba(255,255,255,.25);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Init screen -->
+<div id="screen-init" class="screen active">
+  <div class="init-icon">🍺</div>
+  <div class="init-title">BarBrújula</div>
+  <div class="init-sub">Activa la brújula y te guiamos<br>al bar más cercano.</div>
+  <button class="btn-activate" id="btn-activate" onclick="activate()">
+    Activar brújula
+  </button>
+  <div class="init-error" id="init-error"></div>
+</div>
+
+<!-- Main screen -->
+<div id="screen-main" class="screen">
+  <div class="top-bar">
+    <div class="top-title">BarBrújula 🍺</div>
+    <div class="status-pill">
+      <div class="status-dot searching" id="status-dot"></div>
+      <span id="status-text">Buscando</span>
+    </div>
+  </div>
+
+  <div class="compass-wrap" id="compass-wrap">
+    <!-- Static ring -->
+    <svg class="compass-ring" viewBox="0 0 340 340" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="170" cy="170" r="161" stroke="rgba(255,255,255,.05)" stroke-width="1.5"/>
+      <circle cx="170" cy="170" r="145" stroke="rgba(255,255,255,.035)" stroke-width="1"/>
+      <!-- N tick (orange, longer) -->
+      <g transform="rotate(0,170,170)">
+        <line x1="170" y1="9" x2="170" y2="33" stroke="#ff6b35" stroke-width="3.5" stroke-linecap="round"/>
+      </g>
+      <!-- E tick -->
+      <g transform="rotate(90,170,170)">
+        <line x1="170" y1="9" x2="170" y2="28" stroke="rgba(255,255,255,.35)" stroke-width="2.5" stroke-linecap="round"/>
+      </g>
+      <!-- S tick -->
+      <g transform="rotate(180,170,170)">
+        <line x1="170" y1="9" x2="170" y2="28" stroke="rgba(255,255,255,.35)" stroke-width="2.5" stroke-linecap="round"/>
+      </g>
+      <!-- W tick -->
+      <g transform="rotate(270,170,170)">
+        <line x1="170" y1="9" x2="170" y2="28" stroke="rgba(255,255,255,.35)" stroke-width="2.5" stroke-linecap="round"/>
+      </g>
+      <!-- Intercardinal ticks at 45° -->
+      <g transform="rotate(45,170,170)">
+        <line x1="170" y1="11" x2="170" y2="26" stroke="rgba(255,255,255,.18)" stroke-width="1.5" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(135,170,170)">
+        <line x1="170" y1="11" x2="170" y2="26" stroke="rgba(255,255,255,.18)" stroke-width="1.5" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(225,170,170)">
+        <line x1="170" y1="11" x2="170" y2="26" stroke="rgba(255,255,255,.18)" stroke-width="1.5" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(315,170,170)">
+        <line x1="170" y1="11" x2="170" y2="26" stroke="rgba(255,255,255,.18)" stroke-width="1.5" stroke-linecap="round"/>
+      </g>
+      <!-- Small ticks every 30° (skip where major/intercardinal already exist) -->
+      <g transform="rotate(30,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(60,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(120,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(150,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(210,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(240,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(300,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <g transform="rotate(330,170,170)">
+        <line x1="170" y1="13" x2="170" y2="23" stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-linecap="round"/>
+      </g>
+      <!-- Cardinal labels -->
+      <text x="170" y="56" text-anchor="middle" dominant-baseline="middle"
+        font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="rgba(255,107,53,.9)">N</text>
+      <text x="170" y="294" text-anchor="middle" dominant-baseline="middle"
+        font-family="-apple-system,sans-serif" font-size="14" font-weight="600" fill="rgba(255,255,255,.35)">S</text>
+      <text x="294" y="172" text-anchor="middle" dominant-baseline="middle"
+        font-family="-apple-system,sans-serif" font-size="14" font-weight="600" fill="rgba(255,255,255,.35)">E</text>
+      <text x="46" y="172" text-anchor="middle" dominant-baseline="middle"
+        font-family="-apple-system,sans-serif" font-size="14" font-weight="600" fill="rgba(255,255,255,.35)">O</text>
+      <!-- Center pivot -->
+      <circle cx="170" cy="170" r="5" fill="rgba(255,255,255,.12)"/>
+    </svg>
+
+    <!-- Rotating arrow -->
+    <div class="compass-arrow-wrap" id="arrow-wrap">
+      <svg class="compass-arrow" viewBox="0 0 116 116" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="gN" x1="58" y1="7" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#ff6b35"/>
+            <stop offset="100%" stop-color="#f7931e"/>
+          </linearGradient>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+          </filter>
+        </defs>
+        <!-- North half (orange, pointing toward target) -->
+        <polygon points="58,7 73,58 58,51 43,58" fill="url(#gN)" filter="url(#glow)"/>
+        <!-- South half (dim) -->
+        <polygon points="58,109 73,58 58,65 43,58" fill="rgba(255,255,255,.14)"/>
+        <!-- Center circle -->
+        <circle cx="58" cy="58" r="8" fill="#0f0f0f" stroke="rgba(255,255,255,.25)" stroke-width="1.5"/>
+        <circle cx="58" cy="58" r="3" fill="rgba(255,107,53,.7)"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="bar-info" id="bar-info">
+    <div class="bar-name" id="bar-name">Buscando bares…</div>
+    <div class="bar-dist" id="bar-dist"><strong>—</strong></div>
+    <div class="arrived-badge">¡Has llegado! 🎉</div>
+  </div>
+
+  <div class="bottom-area">
+    <div class="bottom-row">
+      <button class="btn-sm orange" id="btn-next" onclick="nextBar()" style="display:none">
+        Siguiente bar →
+      </button>
+      <button class="btn-sm" onclick="goHome()">← Salir</button>
+    </div>
+    <div class="no-compass-note" id="no-compass-note" style="display:none">
+      Sin sensor de brújula — orientación fija
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- State ----
+  var userLat = null, userLon = null;
+  var deviceHeading = 0;
+  var bars = [];
+  var currentBarIdx = 0;
+  var lastFetchLat = null, lastFetchLon = null;
+  var hasCompass = false;
+  var watchId = null;
+  var lastRotation = 0;
+  var absoluteOrientationSet = false;
+
+  // ---- DOM ----
+  var arrowWrap    = document.getElementById('arrow-wrap');
+  var barNameEl    = document.getElementById('bar-name');
+  var barDistEl    = document.getElementById('bar-dist');
+  var statusDot    = document.getElementById('status-dot');
+  var statusText   = document.getElementById('status-text');
+  var compassWrap  = document.getElementById('compass-wrap');
+  var barInfoEl    = document.getElementById('bar-info');
+  var btnNext      = document.getElementById('btn-next');
+  var initErrorEl  = document.getElementById('init-error');
+
+  // ---- Apple touch icon via canvas ----
+  (function () {
+    var c = document.createElement('canvas');
+    c.width = c.height = 180;
+    var ctx = c.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(40,0); ctx.lineTo(140,0);
+    ctx.quadraticCurveTo(180,0,180,40);
+    ctx.lineTo(180,140); ctx.quadraticCurveTo(180,180,140,180);
+    ctx.lineTo(40,180); ctx.quadraticCurveTo(0,180,0,140);
+    ctx.lineTo(0,40); ctx.quadraticCurveTo(0,0,40,0);
+    ctx.closePath();
+    ctx.fillStyle = '#0a0a0a'; ctx.fill();
+    ctx.font = '108px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🍺', 90, 95);
+    document.getElementById('ati').href = c.toDataURL('image/png');
+  })();
+
+  // ---- Service worker ----
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  }
+
+  // ---- Screen helpers ----
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
+    document.getElementById(id).classList.add('active');
+  }
+
+  function setStatus(state, label) {
+    statusDot.className = 'status-dot' + (state ? ' ' + state : '');
+    statusText.textContent = label || 'Activo';
+  }
+
+  // ---- Activate (called on button click — required for iOS permission request) ----
+  async function activate() {
+    initErrorEl.textContent = '';
+    var btn = document.getElementById('btn-activate');
+    btn.textContent = 'Activando…';
+    btn.disabled = true;
+
+    // iOS 13+ requires requestPermission inside a user gesture
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        var res = await DeviceOrientationEvent.requestPermission();
+        hasCompass = (res === 'granted');
+      } catch(e) {
+        hasCompass = false;
+      }
+    } else if (typeof DeviceOrientationEvent !== 'undefined') {
+      hasCompass = true;
+    }
+
+    if (!navigator.geolocation) {
+      initErrorEl.textContent = 'Tu dispositivo no soporta geolocalización.';
+      btn.textContent = 'Activar brújula'; btn.disabled = false;
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        userLat = pos.coords.latitude;
+        userLon = pos.coords.longitude;
+        startTracking();
+        showScreen('screen-main');
+        if (!hasCompass) document.getElementById('no-compass-note').style.display = 'block';
+      },
+      function(err) {
+        var msgs = {
+          1: 'Permiso de GPS denegado. Actívalo en Ajustes → Privacidad → Localización.',
+          2: 'No se pudo obtener tu posición. Intenta de nuevo.',
+          3: 'Tiempo de espera agotado. Sal al exterior e inténtalo de nuevo.'
+        };
+        initErrorEl.textContent = msgs[err.code] || 'Error de GPS desconocido.';
+        btn.textContent = 'Activar brújula'; btn.disabled = false;
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
+
+  // ---- Start GPS + orientation tracking ----
+  function startTracking() {
+    watchId = navigator.geolocation.watchPosition(onPosition, function() {
+      setStatus('err', 'Sin GPS');
+    }, { enableHighAccuracy: true, maximumAge: 5000 });
+
+    if (hasCompass) {
+      window.addEventListener('deviceorientationabsolute', onOrientationAbsolute, true);
+      window.addEventListener('deviceorientation', onOrientationRelative, true);
+    }
+
+    fetchBars(userLat, userLon);
+  }
+
+  // ---- GPS callback ----
+  function onPosition(pos) {
+    userLat = pos.coords.latitude;
+    userLon = pos.coords.longitude;
+
+    if (lastFetchLat === null ||
+        calcDistance(userLat, userLon, lastFetchLat, lastFetchLon) > 200) {
+      fetchBars(userLat, userLon);
+    }
+    updateUI();
+  }
+
+  // ---- Orientation callbacks ----
+  function onOrientationAbsolute(evt) {
+    if (evt.alpha == null) return;
+    absoluteOrientationSet = true;
+    deviceHeading = (360 - evt.alpha + 360) % 360;
+    updateUI();
+  }
+
+  function onOrientationRelative(evt) {
+    if (absoluteOrientationSet) return;
+    if (evt.webkitCompassHeading != null) {
+      deviceHeading = evt.webkitCompassHeading;
+    } else if (evt.alpha != null) {
+      deviceHeading = (360 - evt.alpha + 360) % 360;
+    }
+    updateUI();
+  }
+
+  // ---- Fetch bars from Overpass ----
+  async function fetchBars(lat, lon) {
+    setStatus('searching', 'Buscando');
+    lastFetchLat = lat;
+    lastFetchLon = lon;
+
+    var q = '[out:json][timeout:15];'
+      + '(node["amenity"="bar"](around:1000,' + lat + ',' + lon + ');'
+      + 'node["amenity"="pub"](around:1000,' + lat + ',' + lon + ');'
+      + 'node["amenity"="nightclub"](around:1000,' + lat + ',' + lon + '););'
+      + 'out body;';
+
+    try {
+      var res = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: q
+      });
+      var data = await res.json();
+
+      bars = (data.elements || [])
+        .filter(function(e){ return e.lat && e.lon; })
+        .map(function(e){
+          return {
+            lat: e.lat,
+            lon: e.lon,
+            name: (e.tags && (e.tags.name || e.tags['name:es'])) || 'Bar sin nombre'
+          };
+        });
+
+      if (!bars.length) {
+        barNameEl.textContent = 'Sin bares en 1 km';
+        barDistEl.innerHTML = 'Prueba en otra zona';
+        setStatus('err', 'Sin bares');
+        return;
+      }
+
+      bars.sort(function(a, b){
+        return calcDistance(lat, lon, a.lat, a.lon) - calcDistance(lat, lon, b.lat, b.lon);
+      });
+      currentBarIdx = 0;
+      btnNext.style.display = bars.length > 1 ? 'inline-block' : 'none';
+      setStatus('', 'Activo');
+      updateUI();
+    } catch(e) {
+      barNameEl.textContent = 'Sin conexión';
+      barDistEl.innerHTML = 'Comprueba tu internet';
+      setStatus('err', 'Sin conexión');
+    }
+  }
+
+  // ---- Cycle to next bar ----
+  function nextBar() {
+    if (!bars.length) return;
+    currentBarIdx = (currentBarIdx + 1) % bars.length;
+    updateUI();
+  }
+
+  // ---- Update compass arrow and bar info ----
+  function updateUI() {
+    if (!bars.length || userLat === null) return;
+
+    var bar = bars[currentBarIdx];
+    var dist = calcDistance(userLat, userLon, bar.lat, bar.lon);
+    var bear = calcBearing(userLat, userLon, bar.lat, bar.lon);
+
+    // Normalize rotation to avoid spinning the long way around 360°
+    var rawRot = bear - deviceHeading;
+    var diff = ((rawRot - lastRotation) % 360 + 540) % 360 - 180;
+    lastRotation = lastRotation + diff;
+    arrowWrap.style.transform = 'rotate(' + lastRotation + 'deg)';
+
+    barNameEl.textContent = bar.name;
+
+    var arrived = dist < 50;
+    if (arrived) {
+      compassWrap.classList.add('arrived');
+      barInfoEl.classList.add('arrived');
+    } else {
+      compassWrap.classList.remove('arrived');
+      barInfoEl.classList.remove('arrived');
+    }
+
+    if (dist < 1000) {
+      barDistEl.innerHTML = 'Estás a <strong>' + Math.round(dist) + ' m</strong> de ' + escHtml(bar.name);
+    } else {
+      barDistEl.innerHTML = 'Estás a <strong>' + (dist / 1000).toFixed(1) + ' km</strong> de ' + escHtml(bar.name);
+    }
+  }
+
+  // ---- Go back to init screen ----
+  function goHome() {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    window.removeEventListener('deviceorientationabsolute', onOrientationAbsolute, true);
+    window.removeEventListener('deviceorientation', onOrientationRelative, true);
+    bars = []; currentBarIdx = 0;
+    userLat = userLon = null;
+    deviceHeading = 0; lastRotation = 0;
+    lastFetchLat = lastFetchLon = null;
+    absoluteOrientationSet = false;
+    barInfoEl.classList.remove('arrived');
+    compassWrap.classList.remove('arrived');
+    document.getElementById('no-compass-note').style.display = 'none';
+    var btn = document.getElementById('btn-activate');
+    btn.textContent = 'Activar brújula'; btn.disabled = false;
+    showScreen('screen-init');
+  }
+
+  // ---- Math helpers ----
+  function calcDistance(lat1, lon1, lat2, lon2) {
+    var R = 6371000;
+    var p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+    var dp = (lat2 - lat1) * Math.PI / 180;
+    var dl = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.sin(dp/2) * Math.sin(dp/2)
+          + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function calcBearing(lat1, lon1, lat2, lon2) {
+    var p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+    var dl = (lon2 - lon1) * Math.PI / 180;
+    var y = Math.sin(dl) * Math.cos(p2);
+    var x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>

@@ -75,6 +75,7 @@ export default function Home() {
   );
 
   const onEnter = (path) => () => navigate(path);
+  const onEnterExternal = (url) => () => { window.location.href = url; };
 
   return (
     <div style={S.page}>
@@ -130,6 +131,31 @@ export default function Home() {
                   <div style={{ minWidth: 0 }}>
                     <div style={S.cardTitle}>Alcoholismo</div>
                     <div style={S.cardMeta}>Registro, estadísticas y equivalencias.</div>
+                  </div>
+                </div>
+                <div style={S.go}>Entrar</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              style={S.card}
+              onClick={onEnterExternal(import.meta.env.BASE_URL + "barbrujula/")}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow = "0 18px 50px rgba(0,0,0,.10)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "0 10px 30px rgba(0,0,0,.06)";
+              }}
+            >
+              <div style={S.cardTop}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  <div style={S.badge}>🍺</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={S.cardTitle}>BarBrújula</div>
+                    <div style={S.cardMeta}>Brújula al bar más cercano.</div>
                   </div>
                 </div>
                 <div style={S.go}>Entrar</div>
