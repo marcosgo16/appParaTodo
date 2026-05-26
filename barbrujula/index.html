@@ -142,6 +142,15 @@
       transition: opacity .3s;
     }
     .bar-dist strong { color: #ff6b35; font-weight: 700; }
+    .bar-close {
+      margin-top: 5px; font-size: 13px;
+      color: rgba(255,255,255,.35); font-weight: 500;
+      transition: color .3s;
+    }
+    .bar-close.soon  { color: #ffaa22; }
+    .bar-close.urgent { color: #ff5555; font-weight: 700; }
+    .arrived .bar-close { display: none; }
+
     .arrived-badge {
       display: none; margin-top: 10px;
       font-size: 17px; font-weight: 700; color: #44dd88;
@@ -301,6 +310,7 @@
   <div class="bar-info" id="bar-info">
     <div class="bar-name" id="bar-name">Buscando bares…</div>
     <div class="bar-dist" id="bar-dist"><strong>—</strong></div>
+    <div class="bar-close" id="bar-close"></div>
     <div class="arrived-badge">¡Has llegado! 🎉</div>
   </div>
 
@@ -333,6 +343,7 @@
   var arrowWrap    = document.getElementById('arrow-wrap');
   var barNameEl    = document.getElementById('bar-name');
   var barDistEl    = document.getElementById('bar-dist');
+  var barCloseEl   = document.getElementById('bar-close');
   var statusDot    = document.getElementById('status-dot');
   var statusText   = document.getElementById('status-text');
   var compassWrap  = document.getElementById('compass-wrap');
@@ -486,20 +497,24 @@
       });
       var data = await res.json();
 
-      bars = (data.elements || [])
+      var all = (data.elements || [])
         .filter(function(e){ return e.lat && e.lon; })
         .map(function(e){
           return {
             lat: e.lat,
             lon: e.lon,
-            name: (e.tags && (e.tags.name || e.tags['name:es'])) || 'Bar sin nombre'
+            name: (e.tags && (e.tags.name || e.tags['name:es'])) || 'Bar sin nombre',
+            oh: (e.tags && e.tags.opening_hours) || null
           };
-        });
+        })
+        .filter(function(b){ return isOpenNow(b.oh); });
+
+      bars = all;
 
       if (!bars.length) {
-        barNameEl.textContent = 'Sin bares en 1 km';
-        barDistEl.innerHTML = 'Prueba en otra zona';
-        setStatus('err', 'Sin bares');
+        barNameEl.textContent = 'Todos los bares están cerrados';
+        barDistEl.innerHTML = 'Inténtalo más tarde';
+        setStatus('err', 'Todo cerrado');
         return;
       }
 
@@ -554,6 +569,24 @@
     } else {
       barDistEl.innerHTML = 'Estás a <strong>' + (dist / 1000).toFixed(1) + ' km</strong> de ' + escHtml(bar.name);
     }
+
+    var closeMin = getCloseTime(bar.oh);
+    if (closeMin === null) {
+      barCloseEl.textContent = '';
+      barCloseEl.className = 'bar-close';
+    } else {
+      var nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+      var remaining = closeMin - nowMin;
+      if (remaining < 0) remaining += 1440;
+      var closeH = Math.floor(closeMin / 60) % 24;
+      var closeM = closeMin % 60;
+      var closeStr = (closeH < 10 ? '0' : '') + closeH + ':' + (closeM < 10 ? '0' : '') + closeM;
+      var remStr = remaining < 60
+        ? remaining + ' min'
+        : Math.floor(remaining / 60) + 'h' + (remaining % 60 ? ' ' + (remaining % 60) + 'min' : '');
+      barCloseEl.textContent = 'Cierra a las ' + closeStr + ' · en ' + remStr;
+      barCloseEl.className = 'bar-close' + (remaining <= 15 ? ' urgent' : remaining <= 45 ? ' soon' : '');
+    }
   }
 
   // ---- Go back to init screen ----
@@ -575,6 +608,94 @@
     var btn = document.getElementById('btn-activate');
     btn.textContent = 'Activar brújula'; btn.disabled = false;
     showScreen('screen-init');
+  }
+
+  // ---- Opening hours parser (OSM format) ----
+  function isOpenNow(oh) {
+    if (!oh) return true;
+    oh = oh.trim();
+    if (oh === '24/7') return true;
+
+    var DAY = ['mo','tu','we','th','fr','sa','su'];
+    var now = new Date();
+    var todayIdx = (now.getDay() + 6) % 7; // Mon=0 ... Sun=6
+    var nowMin = now.getHours() * 60 + now.getMinutes();
+
+    function toMin(t) {
+      var parts = t.trim().split(':');
+      return parseInt(parts[0]) * 60 + (parseInt(parts[1]) || 0);
+    }
+
+    function dayApplies(group) {
+      return group.split(',').map(function(s){ return s.trim(); }).some(function(seg) {
+        if (seg.indexOf('-') !== -1) {
+          var ab = seg.split('-');
+          var a = DAY.indexOf(ab[0]), b = DAY.indexOf(ab[1]);
+          if (a < 0 || b < 0) return false;
+          return a <= b ? (todayIdx >= a && todayIdx <= b) : (todayIdx >= a || todayIdx <= b);
+        }
+        return DAY.indexOf(seg) === todayIdx;
+      });
+    }
+
+    var dayRe = /^((?:(?:mo|tu|we|th|fr|sa|su)(?:-(?:mo|tu|we|th|fr|sa|su))?(?:,\s*)?)+)\s+/;
+    var rules = oh.toLowerCase().split(';');
+
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i].trim();
+      var dm = rule.match(dayRe);
+      var timePart = dm ? rule.slice(dm[0].length).trim() : rule;
+      var applies = dm ? dayApplies(dm[1]) : true;
+
+      if (!applies) continue;
+      if (timePart === 'off') return false;
+
+      var ranges = timePart.split(',');
+      for (var j = 0; j < ranges.length; j++) {
+        var bounds = ranges[j].trim().split('-');
+        if (bounds.length < 2) continue;
+        var s = toMin(bounds[0]), e = toMin(bounds[1]);
+        if (e <= s ? (nowMin >= s || nowMin < e) : (nowMin >= s && nowMin < e)) return true;
+      }
+    }
+    return false;
+  }
+
+  function getCloseTime(oh) {
+    if (!oh || oh.trim() === '24/7') return null;
+    var DAY = ['mo','tu','we','th','fr','sa','su'];
+    var now = new Date();
+    var todayIdx = (now.getDay() + 6) % 7;
+    var nowMin = now.getHours() * 60 + now.getMinutes();
+    function toMin(t) { var p = t.trim().split(':'); return parseInt(p[0])*60+(parseInt(p[1])||0); }
+    function dayApplies(group) {
+      return group.split(',').map(function(s){ return s.trim(); }).some(function(seg) {
+        if (seg.indexOf('-') !== -1) {
+          var ab = seg.split('-'), a = DAY.indexOf(ab[0]), b = DAY.indexOf(ab[1]);
+          if (a<0||b<0) return false;
+          return a<=b ? (todayIdx>=a&&todayIdx<=b) : (todayIdx>=a||todayIdx<=b);
+        }
+        return DAY.indexOf(seg) === todayIdx;
+      });
+    }
+    var dayRe = /^((?:(?:mo|tu|we|th|fr|sa|su)(?:-(?:mo|tu|we|th|fr|sa|su))?(?:,\s*)?)+)\s+/;
+    var rules = oh.toLowerCase().split(';');
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i].trim();
+      var dm = rule.match(dayRe);
+      var timePart = dm ? rule.slice(dm[0].length).trim() : rule;
+      if (!(dm ? dayApplies(dm[1]) : true)) continue;
+      if (timePart === 'off') return null;
+      var ranges = timePart.split(',');
+      for (var j = 0; j < ranges.length; j++) {
+        var bounds = ranges[j].trim().split('-');
+        if (bounds.length < 2) continue;
+        var s = toMin(bounds[0]), e = toMin(bounds[1]);
+        var open = e <= s ? (nowMin >= s || nowMin < e) : (nowMin >= s && nowMin < e);
+        if (open) return e;
+      }
+    }
+    return null;
   }
 
   // ---- Math helpers ----
