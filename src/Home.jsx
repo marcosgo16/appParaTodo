@@ -140,6 +140,31 @@ export default function Home() {
             <button
               type="button"
               style={S.card}
+              onClick={onEnter("/euskera")}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow = "0 18px 50px rgba(0,0,0,.10)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "0 10px 30px rgba(0,0,0,.06)";
+              }}
+            >
+              <div style={S.cardTop}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  <div style={S.badge}>🗣️</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={S.cardTitle}>Euskera</div>
+                    <div style={S.cardMeta}>Tarjetas de vocabulario para aprender en grupo.</div>
+                  </div>
+                </div>
+                <div style={S.go}>Entrar</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              style={S.card}
               onClick={onEnterExternal(import.meta.env.BASE_URL + "barbrujula/")}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = "translateY(-2px)";

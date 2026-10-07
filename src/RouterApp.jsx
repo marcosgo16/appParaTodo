@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import OutfitApp from "./apps/outfit-maker/OutfitApp.jsx";
 import AlcoholApp from "./apps/alcoholismo/AlcoholApp.jsx";
+import EuskeraApp from "./apps/euskera/EuskeraApp.jsx";
 import Home from "./Home.jsx";
 
 function getBasename() {
@@ -18,6 +19,7 @@ export default function RouterApp() {
         <Route path="/" element={<Home />} />
         <Route path="/outfit-maker" element={<OutfitApp />} />
         <Route path="/alcoholismo" element={<AlcoholApp />} />
+        <Route path="/euskera" element={<EuskeraApp />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

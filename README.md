@@ -24,10 +24,12 @@ src/
   apps/
     outfit-maker/       App Outfit Maker (/outfit-maker)
     alcoholismo/        App Alcoholismo (/alcoholismo)
+    euskera/            App Euskera (/euskera)
   lib/                  Código compartido (API y sesión)
 public/
   barbrujula/           App BarBrújula (HTML independiente, sin React)
 server/                 Backend Express compartido
+  euskera.js            API de la app Euskera (salas, tarjetas, progreso)
 ```
 
 ## Cómo subir a GitHub Pages

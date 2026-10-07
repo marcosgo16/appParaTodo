@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { verifyGoogleIdToken, signSessionToken, verifySessionToken } from "./auth.js";
+import { createEuskeraRouter } from "./euskera.js";
 
 const UserStateSchema = new mongoose.Schema(
   {
@@ -688,6 +689,8 @@ Responde en español, de forma concisa y útil.`.trim();
     res.status(500).json({ error: String(e.message) });
   }
 });
+
+app.use("/api/euskera", requireAuth, createEuskeraRouter({ UserState }));
 
 const PORT = Number(process.env.PORT) || 5050;
 const uri = process.env.MONGODB_URI;
