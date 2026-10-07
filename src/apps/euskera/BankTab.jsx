@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
 import * as api from "./euskeraApi.js";
-import { normKey } from "./study.js";
+import { normKey, parseBulk, planBulk } from "./study.js";
 import { cl, S, chip } from "./ui.js";
 
 const KIND_LABEL = { word: "Palabra", phrase: "Frase" };
@@ -132,11 +132,106 @@ function CardForm({ initial, decks, others, defaultDeck, submitLabel, onSubmit, 
   );
 }
 
+const BULK_NOTE = {
+  invalid: "falta la traducción",
+  exact: "ya existe",
+  similar: "parecida a otra",
+};
+
+function BulkForm({ decks, cards, defaultDeck, onSubmit }) {
+  const [text, setText] = useState("");
+  const [deckIds, setDeckIds] = useState(defaultDeck ? [defaultDeck] : []);
+  const [skipSimilar, setSkipSimilar] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const existing = useMemo(() => cards.map((c) => ({ euKey: normKey(c.eu), esKey: normKey(c.es) })), [cards]);
+  const plan = useMemo(() => planBulk(parseBulk(text), existing, { skipSimilar }), [text, existing, skipSimilar]);
+  const toAdd = plan.filter((p) => p.add);
+  const flagged = plan.filter((p) => p.status !== "ok");
+  const hasSimilar = plan.some((p) => p.status === "similar");
+  const skipped = plan.length - toAdd.length;
+
+  const toggleDeck = (id) =>
+    setDeckIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!toAdd.length || busy) return;
+    // Se dejan en el cuadro las líneas sin traducción para poder corregirlas.
+    const pending = plan.filter((p) => p.status === "invalid").map((p) => p.line).join("\n");
+    setBusy(true);
+    const ok = await onSubmit({ cards: toAdd.map(({ eu, es }) => ({ eu, es })), deckIds, skipSimilar });
+    setBusy(false);
+    if (ok) setText(pending);
+  };
+
+  return (
+    <form onSubmit={submit}>
+      <div style={{ ...S.muted, marginBottom: 8 }}>
+        Una tarjeta por línea: euskera, un separador (=, punto y coma, tabulador o « - ») y castellano. Puedes pegar
+        directamente desde una hoja de cálculo.
+      </div>
+      <textarea
+        style={{ ...S.input, minHeight: 150, resize: "vertical", lineHeight: 1.5 }}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={"etxea = la casa\nura = el agua\nzer moduz? = ¿qué tal?"}
+        autoCapitalize="none"
+        autoComplete="off"
+        spellCheck={false}
+      />
+
+      {decks.length > 0 && (
+        <>
+          <span style={{ ...S.label, marginTop: 12 }}>Temas para todo el bloque</span>
+          <div style={S.wrap}>
+            {decks.map((d) => (
+              <button key={d.id} type="button" style={chip(deckIds.includes(d.id))} onClick={() => toggleDeck(d.id)}>
+                {d.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {flagged.length > 0 && (
+        <div style={{ ...S.warn, background: "rgba(178,106,0,.10)", color: cl.amber, maxHeight: 180, overflowY: "auto" }}>
+          {flagged.map((p, idx) => (
+            <div key={idx}>
+              <b>{p.line}</b> — {BULK_NOTE[p.status]}
+              {p.add ? " (se añade)" : " (se salta)"}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {hasSimilar && (
+        <label style={{ ...S.row, marginTop: 10, fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={skipSimilar} onChange={(e) => setSkipSimilar(e.target.checked)} />
+          Saltar también las parecidas
+        </label>
+      )}
+
+      <div style={{ ...S.row, marginTop: 12 }}>
+        <button type="submit" style={{ ...S.btn, ...(toAdd.length && !busy ? {} : S.btnOff) }} disabled={!toAdd.length || busy}>
+          {toAdd.length ? `Añadir ${toAdd.length} ${toAdd.length === 1 ? "tarjeta" : "tarjetas"}` : "Añadir"}
+        </button>
+        {skipped > 0 && (
+          <span style={S.muted}>
+            {skipped} {skipped === 1 ? "se salta" : "se saltan"}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+}
+
 export default function BankTab({ room, cards, setRoom, setCards, onError, showToast }) {
   const [deck, setDeck] = useState("all");
   const [search, setSearch] = useState("");
   const [newDeck, setNewDeck] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [bulk, setBulk] = useState(false);
 
   const activeDeck = room.decks.find((d) => d.id === deck) ?? null;
 
@@ -170,6 +265,19 @@ export default function BankTab({ room, cards, setRoom, setCards, onError, showT
     } catch (e) {
       if (e.status === 409) onConflict(e);
       else onError(e);
+      return false;
+    }
+  };
+
+  const addBulk = async (payload) => {
+    try {
+      const r = await api.addCardsBulk(room.id, payload);
+      setCards((cs) => [...r.cards, ...cs]);
+      const n = r.cards.length;
+      showToast(`${n} ${n === 1 ? "añadida" : "añadidas"}${r.skipped ? `, ${r.skipped} saltadas` : ""}`);
+      return true;
+    } catch (e) {
+      onError(e);
       return false;
     }
   };
@@ -235,15 +343,33 @@ export default function BankTab({ room, cards, setRoom, setCards, onError, showT
   return (
     <>
       <div style={S.card}>
-        <div style={S.h2}>Añadir palabra o frase</div>
-        <CardForm
-          key={activeDeck?.id ?? "all"}
-          decks={room.decks}
-          others={cards}
-          defaultDeck={activeDeck?.id}
-          submitLabel="Añadir"
-          onSubmit={addCard}
-        />
+        <div style={S.h2}>Añadir palabras o frases</div>
+        <div style={{ ...S.wrap, marginBottom: 12 }}>
+          <button type="button" style={chip(!bulk)} onClick={() => setBulk(false)}>
+            Una a una
+          </button>
+          <button type="button" style={chip(bulk)} onClick={() => setBulk(true)}>
+            En bloque
+          </button>
+        </div>
+        {bulk ? (
+          <BulkForm
+            key={activeDeck?.id ?? "all"}
+            decks={room.decks}
+            cards={cards}
+            defaultDeck={activeDeck?.id}
+            onSubmit={addBulk}
+          />
+        ) : (
+          <CardForm
+            key={activeDeck?.id ?? "all"}
+            decks={room.decks}
+            others={cards}
+            defaultDeck={activeDeck?.id}
+            submitLabel="Añadir"
+            onSubmit={addCard}
+          />
+        )}
       </div>
 
       <div style={S.card}>

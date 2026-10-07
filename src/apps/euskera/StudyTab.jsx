@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./euskeraApi.js";
-import { LANG, buildQueue, countPending, filterCards } from "./study.js";
+import { LANG, buildQueue, countPending, filterCards, previewIntervals, progressKey } from "./study.js";
 import { cl, S, chip } from "./ui.js";
 
 const DIR_OPTIONS = [
@@ -15,14 +15,22 @@ const KIND_OPTIONS = [
   ["phrase", "Frases"],
 ];
 
-const SIZES = [10, 20, 50];
+const SIZES = [10, 20, 50, Infinity];
 
+// Mismos botones y colores que Anki; encima de cada uno va cuándo volvería a salir la tarjeta.
 const GRADES = [
-  [0, "Otra vez", cl.red],
-  [1, "Difícil", cl.amber],
-  [2, "Bien", cl.green],
-  [3, "Fácil", cl.blue],
+  [0, "Otra vez", "#C62828"],
+  [1, "Difícil", "#546E7A"],
+  [2, "Bien", "#2E7D32"],
+  [3, "Fácil", "#1565C0"],
 ];
+
+const answerBar = {
+  position: "sticky",
+  bottom: 0,
+  background: cl.bg,
+  padding: "10px 0 calc(10px + env(safe-area-inset-bottom))",
+};
 
 export default function StudyTab({ room, cards, progress, onReviewed, onError }) {
   const [deck, setDeck] = useState("all");
@@ -47,9 +55,15 @@ export default function StudyTab({ room, cards, progress, onReviewed, onError })
   const bank = banks.find((b) => b.id === deck) ?? banks[0];
   const pending = bank.due + bank.fresh;
 
+  const infinite = !Number.isFinite(size);
+
+  // En modo infinito entra todo el banco elegido, toque repasarlo o no.
+  const makeQueue = (free) =>
+    buildQueue(filterCards(cards, { deck: bank.id, kind }), progress, { dir, size, free: free || infinite });
+
   const start = (free) => {
-    const queue = buildQueue(filterCards(cards, { deck: bank.id, kind }), progress, { dir, size, free });
-    if (queue.length) setSession({ queue, i: 0, revealed: false, reviewed: 0, again: 0 });
+    const queue = makeQueue(free);
+    if (queue.length) setSession({ queue, i: 0, revealed: false, reviewed: 0, again: 0, infinite });
   };
 
   if (session) {
@@ -58,6 +72,8 @@ export default function StudyTab({ room, cards, progress, onReviewed, onError })
         roomId={room.id}
         session={session}
         setSession={setSession}
+        progress={progress}
+        refill={() => makeQueue(true)}
         onReviewed={onReviewed}
         onError={onError}
       />
@@ -136,7 +152,7 @@ export default function StudyTab({ room, cards, progress, onReviewed, onError })
         <div style={S.wrap}>
           {SIZES.map((n) => (
             <button key={n} type="button" style={chip(size === n)} onClick={() => setSize(n)}>
-              {n}
+              {Number.isFinite(n) ? n : "∞ Sin fin"}
             </button>
           ))}
         </div>
@@ -146,6 +162,10 @@ export default function StudyTab({ room, cards, progress, onReviewed, onError })
         <div style={{ ...S.muted, textAlign: "center", padding: "8px 0" }}>
           Aquí todavía no hay tarjetas. Añade alguna en la pestaña Banco.
         </div>
+      ) : infinite ? (
+        <button type="button" style={{ ...S.btn, width: "100%", padding: 15 }} onClick={() => start(true)}>
+          Empezar (sin fin)
+        </button>
       ) : pending > 0 ? (
         <button type="button" style={{ ...S.btn, width: "100%", padding: 15 }} onClick={() => start(false)}>
           Empezar ({Math.min(pending, size)})
@@ -164,17 +184,28 @@ export default function StudyTab({ room, cards, progress, onReviewed, onError })
   );
 }
 
-function Session({ roomId, session, setSession, onReviewed, onError }) {
-  const { queue, i, revealed } = session;
+function Session({ roomId, session, setSession, progress, refill, onReviewed, onError }) {
+  const { queue, i, revealed, reviewed, infinite } = session;
   const item = queue[i];
-  const gradedIndex = useRef(-1);
+  const gradedAt = useRef(-1);
+
+  // Modo sin fin: al agotar la cola se vuelve a sacar otra tanda del banco.
+  const exhausted = !item && infinite;
+  useEffect(() => {
+    if (!exhausted) return;
+    let next = refill();
+    const lastId = queue[queue.length - 1]?.card.id;
+    if (next.length > 1 && next[0].card.id === lastId) next = [...next.slice(1), next[0]];
+    setSession((s) => (s ? (next.length ? { ...s, queue: next, i: 0 } : { ...s, infinite: false }) : s));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exhausted]);
 
   const reveal = useCallback(() => setSession((s) => (s ? { ...s, revealed: true } : s)), [setSession]);
 
   const grade = useCallback(
     (g) => {
-      if (!item || gradedIndex.current === i) return;
-      gradedIndex.current = i;
+      if (!item || gradedAt.current === reviewed) return;
+      gradedAt.current = reviewed;
       api
         .review(roomId, { cardId: item.card.id, dir: item.dir, grade: g })
         .then((r) => onReviewed(r.progress))
@@ -192,7 +223,7 @@ function Session({ roomId, session, setSession, onReviewed, onError }) {
         again: s.again + (g === 0 ? 1 : 0),
       }));
     },
-    [item, i, roomId, onReviewed, onError, setSession]
+    [item, reviewed, roomId, onReviewed, onError, setSession]
   );
 
   useEffect(() => {
@@ -209,6 +240,8 @@ function Session({ roomId, session, setSession, onReviewed, onError }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [item, revealed, reveal, grade]);
+
+  if (exhausted) return null;
 
   if (!item) {
     return (
@@ -227,6 +260,7 @@ function Session({ roomId, session, setSession, onReviewed, onError }) {
   }
 
   const [from, to] = item.dir === "eu-es" ? ["eu", "es"] : ["es", "eu"];
+  const intervals = previewIntervals(progress[progressKey(item.card.id, item.dir)]);
 
   return (
     <>
@@ -235,12 +269,14 @@ function Session({ roomId, session, setSession, onReviewed, onError }) {
           Terminar
         </button>
         <div style={{ fontSize: 13, color: cl.muted, fontWeight: 700 }}>
-          {i + 1} / {queue.length}
+          {infinite ? `${reviewed} hechas · ∞` : `${i + 1} / ${queue.length}`}
         </div>
       </div>
-      <div style={{ height: 6, borderRadius: 999, background: cl.soft, marginBottom: 14, overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${(i / queue.length) * 100}%`, background: cl.green }} />
-      </div>
+      {!infinite && (
+        <div style={{ height: 6, borderRadius: 999, background: cl.soft, marginBottom: 14, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: `${(i / queue.length) * 100}%`, background: cl.green }} />
+        </div>
+      )}
 
       <div style={{ ...S.card, textAlign: "center", padding: "28px 18px", minHeight: 240 }}>
         <div style={{ ...S.row, justifyContent: "center", marginBottom: 14 }}>
@@ -267,24 +303,35 @@ function Session({ roomId, session, setSession, onReviewed, onError }) {
         )}
       </div>
 
-      {revealed ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
-          {GRADES.map(([g, lbl, color]) => (
-            <button
-              key={g}
-              type="button"
-              style={{ ...S.btn, background: color, padding: "14px 4px", fontSize: 14 }}
-              onClick={() => grade(g)}
-            >
-              {lbl}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <button type="button" style={{ ...S.btn, width: "100%", padding: 15, background: cl.text }} onClick={reveal}>
-          Mostrar respuesta
-        </button>
-      )}
+      <div style={answerBar}>
+        {revealed ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+            {GRADES.map(([g, lbl, color]) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => grade(g)}
+                style={{
+                  padding: "8px 2px 10px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: color,
+                  color: "#fff",
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 3 }}>{intervals[g]}</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{lbl}</div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button type="button" style={{ ...S.btn, width: "100%", padding: 15, background: cl.text }} onClick={reveal}>
+            Mostrar respuesta
+          </button>
+        )}
+      </div>
     </>
   );
 }

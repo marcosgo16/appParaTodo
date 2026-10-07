@@ -89,7 +89,7 @@ export const S = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
-  chipOn: { background: cl.text, color: "#fff", borderColor: cl.text },
+  chipOn: { background: cl.text, color: "#fff", border: `1px solid ${cl.text}` },
   tabs: {
     display: "flex",
     gap: 4,

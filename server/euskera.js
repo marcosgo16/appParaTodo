@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import express from "express";
 import mongoose from "mongoose";
+import { normKey, planBulk, schedule } from "../shared/euskera.js";
 
 const { Schema } = mongoose;
 
@@ -11,7 +12,7 @@ const MAX_TEXT = 200;
 const MAX_CARDS_PER_ROOM = 5000;
 const MAX_DECKS_PER_ROOM = 60;
 const MAX_MEMBERS_PER_ROOM = 20;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const MAX_BULK = 300;
 
 const RoomSchema = new Schema(
   {
@@ -72,48 +73,6 @@ const Card = mongoose.models.EuskeraCard || mongoose.model("EuskeraCard", CardSc
 const Progress =
   mongoose.models.EuskeraProgress || mongoose.model("EuskeraProgress", ProgressSchema);
 
-/** Clave para detectar duplicados: sin mayúsculas, tildes ni puntuación (la ñ se conserva). */
-export function normKey(s) {
-  return String(s ?? "")
-    .normalize("NFC")
-    .toLowerCase()
-    .replace(/ñ/g, "\u0001")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\u0001/g, "ñ")
-    .replace(/[¿?¡!.,;:"'()«»]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Repetición espaciada tipo SM-2. grade: 0 otra vez, 1 difícil, 2 bien, 3 fácil. */
-export function schedule(prev, grade, now = new Date()) {
-  let ease = prev?.ease ?? 2.5;
-  let interval = prev?.interval ?? 0;
-  let reps = prev?.reps ?? 0;
-  let lapses = prev?.lapses ?? 0;
-
-  if (grade === 0) {
-    ease = Math.max(1.3, ease - 0.2);
-    interval = 0;
-    reps = 0;
-    lapses += 1;
-    return { ease, interval, reps, lapses, due: new Date(now.getTime() + 10 * 60 * 1000) };
-  }
-
-  if (grade === 1) {
-    ease = Math.max(1.3, ease - 0.15);
-    interval = reps === 0 ? 1 : Math.max(1, Math.round(interval * 1.2));
-  } else if (grade === 2) {
-    interval = reps === 0 ? 1 : reps === 1 ? 3 : Math.max(1, Math.round(interval * ease));
-  } else {
-    ease += 0.15;
-    interval = reps === 0 ? 4 : Math.max(1, Math.round(Math.max(interval, 1) * ease * 1.3));
-  }
-  reps += 1;
-  return { ease, interval, reps, lapses, due: new Date(now.getTime() + interval * DAY_MS) };
-}
-
 function cleanText(x, max = MAX_TEXT) {
   return String(x ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -156,6 +115,7 @@ function progressOut(p) {
   return {
     cardId: String(p.cardId),
     dir: p.dir,
+    ease: p.ease,
     interval: p.interval,
     reps: p.reps,
     lapses: p.lapses,
@@ -395,6 +355,56 @@ export function createEuskeraRouter({ UserState }) {
         const dupNow = await findDuplicate(roomId, input, true);
         res.status(409).json(dupNow ?? { error: "Esa tarjeta ya existe en la sala", duplicate: "exact", matches: [] });
       }
+    })
+  );
+
+  // Alta en bloque: salta lo duplicado en vez de rechazar todo el bloque.
+  router.post(
+    "/rooms/:roomId/cards/bulk",
+    h(async (req, res) => {
+      const roomId = req.room._id;
+      const raw = Array.isArray(req.body?.cards) ? req.body.cards : [];
+      if (!raw.length) return res.status(400).json({ error: "No hay tarjetas que añadir" });
+      if (raw.length > MAX_BULK) {
+        return res.status(400).json({ error: `Como mucho ${MAX_BULK} tarjetas por bloque` });
+      }
+
+      const validDecks = new Set(req.room.decks.map((d) => String(d._id)));
+      const deckIds = Array.isArray(req.body?.deckIds)
+        ? [...new Set(req.body.deckIds.map(String))].filter((id) => validDecks.has(id))
+        : [];
+      const items = raw.map((c) => ({ eu: cleanText(c?.eu), es: cleanText(c?.es) }));
+      const existing = await Card.find({ roomId }).select("euKey esKey").lean();
+      const plan = planBulk(items, existing, { skipSimilar: Boolean(req.body?.skipSimilar) });
+
+      const free = Math.max(0, MAX_CARDS_PER_ROOM - existing.length);
+      const me = await profileOf(req);
+      const docs = plan
+        .filter((p) => p.add)
+        .slice(0, free)
+        .map((p) => ({
+          roomId,
+          eu: p.eu,
+          es: p.es,
+          euKey: p.euKey,
+          esKey: p.esKey,
+          kind: /\s/.test(p.eu) ? "phrase" : "word",
+          deckIds,
+          createdBySub: me.sub,
+          createdByName: me.name,
+        }));
+
+      let inserted = [];
+      if (docs.length) {
+        try {
+          inserted = await Card.insertMany(docs, { ordered: false });
+        } catch (e) {
+          // Si otra persona añadió alguna a la vez, entran las demás.
+          if (e?.code !== 11000 && !e?.writeErrors) throw e;
+          inserted = e.insertedDocs ?? [];
+        }
+      }
+      res.status(201).json({ cards: inserted.map(cardOut), skipped: raw.length - inserted.length });
     })
   );
 

@@ -30,6 +30,7 @@ export const renameDeck = (roomId, deckId, name) => call("PUT", `/rooms/${roomId
 export const deleteDeck = (roomId, deckId) => call("DELETE", `/rooms/${roomId}/decks/${deckId}`);
 
 export const addCard = (roomId, card) => call("POST", `/rooms/${roomId}/cards`, card);
+export const addCardsBulk = (roomId, payload) => call("POST", `/rooms/${roomId}/cards/bulk`, payload);
 export const updateCard = (roomId, cardId, card) => call("PUT", `/rooms/${roomId}/cards/${cardId}`, card);
 export const deleteCard = (roomId, cardId) => call("DELETE", `/rooms/${roomId}/cards/${cardId}`);
 

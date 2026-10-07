@@ -1,22 +1,32 @@
+import { normKey, planBulk, schedule } from "../../../shared/euskera.js";
+
+export { normKey, planBulk };
+
+// Separadores admitidos entre euskera y castellano, por orden de preferencia.
+const BULK_SEPARATORS = [/\t+/, /\s*=\s*/, /\s*;\s*/, /\s+[-–—]\s+/, /\s*:\s*/];
+
+/** Convierte un bloque de texto (una tarjeta por línea) en parejas { eu, es, line }. */
+export function parseBulk(text) {
+  return String(text ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      for (const sep of BULK_SEPARATORS) {
+        const m = line.match(sep);
+        if (m && m.index > 0) {
+          return { line, eu: line.slice(0, m.index).trim(), es: line.slice(m.index + m[0].length).trim() };
+        }
+      }
+      return { line, eu: line, es: "" };
+    });
+}
+
 export const DIRS = ["eu-es", "es-eu"];
 
 export const LANG = { eu: "Euskera", es: "Castellano" };
 
 export const progressKey = (cardId, dir) => `${cardId}|${dir}`;
-
-/** Misma normalización que el servidor (server/euskera.js) para avisar de duplicados al escribir. */
-export function normKey(s) {
-  return String(s ?? "")
-    .normalize("NFC")
-    .toLowerCase()
-    .replace(/ñ/g, "\u0001")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\u0001/g, "ñ")
-    .replace(/[¿?¡!.,;:"'()«»]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 export function filterCards(cards, { deck, kind }) {
   return cards.filter(
@@ -71,9 +81,24 @@ export function countPending(cards, progress, dir) {
   return { due: due.length, fresh: fresh.length };
 }
 
-/** Cola de una sesión: primero lo pendiente, luego tarjetas nuevas. `free` repasa aunque no toque. */
+/**
+ * Cola de una sesión: primero lo pendiente, luego tarjetas nuevas. `free` repasa aunque no toque.
+ * Con `size` infinito salen todas, en ese orden de prioridad (barajadas dentro de cada grupo).
+ */
 export function buildQueue(cards, progress, { dir, size, free = false }) {
   const { due, fresh, rest } = classify(cards, progress, dir);
   const ordered = [...due, ...shuffle(fresh), ...(free ? shuffle(rest) : [])];
-  return shuffle(ordered.slice(0, size));
+  return Number.isFinite(size) ? shuffle(ordered.slice(0, size)) : ordered;
+}
+
+function formatInterval(days) {
+  if (days <= 0) return "<10 min";
+  if (days < 30) return `${days} d`;
+  const fmt = (n) => n.toFixed(1).replace(/\.0$/, "").replace(".", ",");
+  return days < 365 ? `${fmt(days / 30)} mes` : `${fmt(days / 365)} a`;
+}
+
+/** Cuándo volvería a salir la tarjeta con cada botón (0 otra vez … 3 fácil), como en Anki. */
+export function previewIntervals(prev) {
+  return [0, 1, 2, 3].map((g) => formatInterval(schedule(prev, g).interval));
 }

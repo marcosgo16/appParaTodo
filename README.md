@@ -30,6 +30,7 @@ public/
   barbrujula/           App BarBrújula (HTML independiente, sin React)
 server/                 Backend Express compartido
   euskera.js            API de la app Euskera (salas, tarjetas, progreso)
+shared/                 Lógica que usan a la vez el servidor y la web
 ```
 
 ## Cómo subir a GitHub Pages

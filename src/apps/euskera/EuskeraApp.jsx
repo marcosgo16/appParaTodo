@@ -11,6 +11,9 @@ import BankTab from "./BankTab.jsx";
 
 const STORAGE_ROOM = "eus_room";
 
+/** Enlace que une directamente a la sala: /euskera?join=CODIGO */
+const joinLink = (code) => `${window.location.origin}${import.meta.env.BASE_URL}euskera?join=${code}`;
+
 const TABS = [
   ["study", "Estudiar"],
   ["bank", "Banco"],
@@ -28,6 +31,8 @@ export default function EuskeraApp() {
   const [roomId, setRoomId] = useState(() => localStorage.getItem(STORAGE_ROOM));
   const [toast, setToast] = useState("");
   const toastTimer = useRef(null);
+  // Código de invitación del enlace; se guarda hasta que haya sesión para poder unirse.
+  const [invite, setInvite] = useState(() => new URLSearchParams(window.location.search).get("join"));
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -79,6 +84,20 @@ export default function EuskeraApp() {
     setStatus("loading");
     loadRooms();
   }, [configured, authVersion, loadRooms]);
+
+  useEffect(() => {
+    if (!invite || status !== "ready") return;
+    setInvite(null);
+    navigate("/euskera", { replace: true }); // quita ?join= de la URL
+    api
+      .joinRoom(invite)
+      .then(({ room }) => {
+        setRooms((rs) => [room, ...rs.filter((r) => r.id !== room.id)]);
+        openRoom(room.id);
+        showToast(`Te has unido a ${room.name}`);
+      })
+      .catch(onError);
+  }, [invite, status, navigate, openRoom, showToast, onError]);
 
   // Al volver de una sala, refresca la lista (miembros, nº de tarjetas).
   const backToRooms = useCallback(() => {
@@ -149,9 +168,11 @@ export default function EuskeraApp() {
           </div>
         ) : status === "login" ? (
           <div style={{ ...S.card, textAlign: "center", padding: "28px 16px" }}>
-            <div style={S.h2}>Entra para empezar</div>
+            <div style={S.h2}>{invite ? "Te han invitado a una sala" : "Entra para empezar"}</div>
             <div style={{ ...S.muted, marginBottom: 16 }}>
-              Las salas son compartidas y tu progreso de estudio es solo tuyo, así que hace falta iniciar sesión.
+              {invite
+                ? "Inicia sesión y entrarás directamente en la sala."
+                : "Las salas son compartidas y tu progreso de estudio es solo tuyo, así que hace falta iniciar sesión."}
             </div>
             <div style={{ display: "flex", justifyContent: "center" }}>
               <GoogleLogin
@@ -319,13 +340,20 @@ function RoomView({ roomId, onBack, onError, showToast }) {
     []
   );
 
-  const copyCode = async () => {
+  const copy = async (text, done) => {
     try {
-      await navigator.clipboard.writeText(room.code);
-      showToast("Código copiado");
+      await navigator.clipboard.writeText(text);
+      showToast(done);
     } catch {
-      showToast(`Código: ${room.code}`);
+      showToast("No se pudo copiar");
     }
+  };
+
+  const shareLink = () => {
+    const url = joinLink(room.code);
+    if (!navigator.share) return copy(url, "Enlace copiado");
+    // Si se cancela el menú de compartir no hay nada que avisar.
+    navigator.share({ title: `Sala de euskera: ${room.name}`, url }).catch(() => {});
   };
 
   const leave = async () => {
@@ -377,9 +405,33 @@ function RoomView({ roomId, onBack, onError, showToast }) {
       {tab === "room" && (
         <>
           <div style={{ ...S.card, textAlign: "center" }}>
-            <div style={S.muted}>Comparte este código para que alguien se una</div>
-            <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: ".18em", margin: "10px 0 12px" }}>{room.code}</div>
-            <button type="button" style={S.btn} onClick={copyCode}>
+            <div style={S.muted}>Invita a alguien con este enlace: al abrirlo entra directamente en la sala</div>
+            <div
+              style={{
+                margin: "12px 0",
+                padding: "10px 12px",
+                borderRadius: 12,
+                background: cl.soft,
+                fontSize: 13,
+                overflowWrap: "anywhere",
+                userSelect: "all",
+              }}
+            >
+              {joinLink(room.code)}
+            </div>
+            <div style={{ ...S.wrap, justifyContent: "center" }}>
+              <button type="button" style={S.btn} onClick={shareLink}>
+                {navigator.share ? "Compartir enlace" : "Copiar enlace"}
+              </button>
+              {navigator.share && (
+                <button type="button" style={S.btnGhost} onClick={() => copy(joinLink(room.code), "Enlace copiado")}>
+                  Copiar enlace
+                </button>
+              )}
+            </div>
+            <div style={{ ...S.muted, marginTop: 16 }}>O con el código</div>
+            <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: ".18em", margin: "4px 0 10px" }}>{room.code}</div>
+            <button type="button" style={S.btnGhost} onClick={() => copy(room.code, "Código copiado")}>
               Copiar código
             </button>
           </div>
