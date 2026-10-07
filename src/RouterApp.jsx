@@ -1,7 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import OutfitApp from "./App.jsx";
-import AlcoholApp from "./alcoholismo/AlcoholApp.jsx";
+import OutfitApp from "./apps/outfit-maker/OutfitApp.jsx";
+import AlcoholApp from "./apps/alcoholismo/AlcoholApp.jsx";
 import Home from "./Home.jsx";
 
 function getBasename() {

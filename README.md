@@ -14,6 +14,22 @@ Incluye:
 - Estadísticas con gráficas (por mes y top de tipos)
 - Mismo sistema de login con Google + sincronización en BDD (si lo tienes configurado)
 
+## Estructura del proyecto
+
+```
+src/
+  main.jsx              Punto de entrada
+  RouterApp.jsx         Rutas de las apps React
+  Home.jsx              Portada con una tarjeta por app
+  apps/
+    outfit-maker/       App Outfit Maker (/outfit-maker)
+    alcoholismo/        App Alcoholismo (/alcoholismo)
+  lib/                  Código compartido (API y sesión)
+public/
+  barbrujula/           App BarBrújula (HTML independiente, sin React)
+server/                 Backend Express compartido
+```
+
 ## Cómo subir a GitHub Pages
 
 ### Requisitos

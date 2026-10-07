@@ -8,8 +8,8 @@ import {
   putAlcoholState,
   postGoogleAuth,
   postAlcoholAi,
-} from "../lib/api.js";
-import { getSessionToken, setSessionToken, clearSession } from "../lib/session.js";
+} from "../../lib/api.js";
+import { getSessionToken, setSessionToken, clearSession } from "../../lib/session.js";
 
 function pad2(n) {
   return String(n).padStart(2, "0");

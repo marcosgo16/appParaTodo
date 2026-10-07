@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { GoogleLogin } from "@react-oauth/google";
-import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth, getApiUrl, getAuthHeaders } from "./lib/api.js";
-import { getSessionToken, setSessionToken, clearSession } from "./lib/session.js";
+import { hasRemoteApi, hasGoogleAuth, fetchRemoteState, putRemoteState, postGoogleAuth, getApiUrl, getAuthHeaders } from "../../lib/api.js";
+import { getSessionToken, setSessionToken, clearSession } from "../../lib/session.js";
 
 const SLOTS = [
   { key: "outerwear", label: "Chaqueta",   cats: ["Chaquetas"] },
